@@ -2,10 +2,41 @@
 
 import re
 
+from telegram.error import TelegramError
+
 
 class RegistryObserver:
-    def __init__(self, profiles):
+    def __init__(self, profiles, is_admin=None, admin_username=None):
         self.profiles = profiles
+        self.is_admin = is_admin or (lambda update: False)
+        self.admin_username = admin_username
+
+    async def notify(self, context, kind, text):
+        if self.profiles.metadata('owner_alerts_'+kind) is False:
+            return
+        owner = self.profiles.metadata('owner_alert_recipient')
+        if not owner:
+            return
+        expected = self.admin_username or owner['username']
+        try:
+            # Revalidate the current account before sending private admin metadata.
+            chat = await context.bot.get_chat(owner['id'])
+            if chat.type != 'private' or (chat.username or '').casefold() != expected.casefold():
+                return
+            await context.bot.send_message(owner['id'], text, parse_mode=None)
+        except TelegramError:
+            # A blocked/unreachable owner must not break schedule handlers.
+            return
+
+    @staticmethod
+    def group_notice(chat, actor=None):
+        lines = ['👥 Новый чат подключён к боту', (chat.title or 'Без названия')[:128], f'ID: {chat.id}']
+        if getattr(chat, 'username', None):
+            lines.append('https://t.me/'+chat.username)
+        if actor:
+            lines.append('Добавил: '+('@'+actor.username if getattr(actor,'username',None) else str(actor.id)))
+        return '\n'.join(lines)
+
 
     async def handle(self, update, context):
         event = getattr(update, 'my_chat_member', None)
@@ -16,8 +47,10 @@ class RegistryObserver:
                 self.profiles.contact_active(chat.id, present)
             elif chat.type in ('group','supergroup'):
                 actor = event.from_user if old.status in ('left','kicked') and present else None
-                self.profiles.observe_chat(chat.id, title=chat.title, username=getattr(chat,'username',None), status=new.status,
+                new_chat = self.profiles.observe_chat(chat.id, title=chat.title, username=getattr(chat,'username',None), status=new.status,
                                            added_by=actor.id if actor else None, added_by_username=getattr(actor,'username',None))
+                if new_chat and present:
+                    await self.notify(context, 'groups', self.group_notice(chat, actor))
                 if not present:
                     self.profiles.deactivate_chat(chat.id)
             return
@@ -30,7 +63,17 @@ class RegistryObserver:
             match = re.fullmatch(r'/start(?:@\w+)?\s+([A-Za-z0-9_-]{1,64})', text)
             if match:
                 referral = match[1]
-            self.profiles.touch_contact(user.id, getattr(user,'username',None), getattr(user,'full_name',None), referral)
+            new_user = self.profiles.touch_contact(user.id, getattr(user,'username',None), getattr(user,'full_name',None), referral)
+
+            if self.is_admin(update):
+                self.profiles.set_metadata('owner_alert_recipient', {'id': chat.id, 'username': user.username.casefold()})
+            elif new_user:
+                tag = '@'+user.username if getattr(user,'username',None) else 'Тег не установлен'
+                await self.notify(context, 'users', '\n'.join([
+                    '👤 Новый пользователь бота', (getattr(user,'full_name',None) or 'Без имени')[:128],
+                    tag, f'ID: {user.id}']))
 
         elif chat.type in ('group','supergroup'):
-            self.profiles.observe_chat(chat.id,title=chat.title,username=getattr(chat,'username',None))
+            new_chat = self.profiles.observe_chat(chat.id,title=chat.title,username=getattr(chat,'username',None))
+            if new_chat:
+                await self.notify(context, 'groups', self.group_notice(chat))

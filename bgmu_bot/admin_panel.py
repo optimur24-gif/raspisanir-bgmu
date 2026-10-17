@@ -52,8 +52,21 @@ class AdminPanel:
             f"Чатов: {stats['groups']} · получают объявления: {stats['subscribed_groups']}\n\n"
             'Здесь доступны только сведения о подключении бота. Журналов переписки нет.',
             [[('📣 Новая рассылка','audiences','')], [('👤 Пользователи','users','0')], [('👥 Подключённые чаты','chats','0')],
+             [('🔔 Новые пользователи и чаты','alerts','')],
              [('📬 История и статус рассылок','history','')], [('🧹 Очистить историю рассылок','clear_ask','')],
              [('🔄 Обновить данные','refresh',''),('🎯 Обновить курс','course','')]])
+
+    async def alerts(self, update, context):
+        rows = []
+        lines = ['🔔 Уведомления владельцу в личку',
+                 'О новых пользователях и впервые обнаруженных чатах. Повторный /start и смена прав не создают дубликаты.']
+        for kind, label in (('users','Пользователи'),('groups','Чаты')):
+            enabled = self.profiles.metadata('owner_alerts_'+kind) is not False
+            lines.append(label+': '+('включены' if enabled else 'выключены'))
+            rows.append([(('🔕 Выключить: ' if enabled else '🔔 Включить: ')+label,
+                          'alert_set',kind+('_off' if enabled else '_on'))])
+        rows.append([('← Админ-панель','root','')])
+        await self.show(update,context,'\n'.join(lines),rows)
 
     async def audiences(self, update, context):
         self.state(context).pop('draft', None)
@@ -223,6 +236,12 @@ class AdminPanel:
         elif action == 'course':
             state.clear()
             await self.ui.admin_course(update,context,begin=True)
+        elif action == 'alerts':
+            await self.alerts(update,context)
+        elif action == 'alert_set' and value in ('users_on','users_off','groups_on','groups_off'):
+            kind, setting = value.split('_')
+            self.profiles.set_metadata('owner_alerts_'+kind, setting == 'on')
+            await self.alerts(update,context)
         elif action == 'audiences':
             await self.audiences(update,context)
         elif action == 'audience' and value in ('users','groups','selected'):

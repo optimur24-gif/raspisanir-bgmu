@@ -589,7 +589,7 @@ def create_application(token: str, source: ScheduleSource, *, profiles=None, adm
     if personal_source:
         profiles.recover_broadcasts()
         application.add_handler(TypeHandler(Update,TrafficGuard(ui.is_admin).handle),group=-9)
-        application.add_handler(TypeHandler(Update,RegistryObserver(profiles).handle),group=-10)
+        application.add_handler(TypeHandler(Update,RegistryObserver(profiles,ui.is_admin,ui.admin_username).handle),group=-10)
         application.job_queue.run_repeating(broadcast_tick,interval=1,first=3,data=profiles,
                                            name='bgmu-admin-broadcasts',job_kwargs={'max_instances':1,'coalesce':True})
         application.job_queue.run_daily(

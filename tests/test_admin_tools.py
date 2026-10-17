@@ -207,3 +207,75 @@ async def test_original_bot_cooldown_and_owner_exception():
     await middleware(handler,e,{})
     await middleware(handler,e,{})
     assert handler.await_count==4
+
+
+@pytest.mark.asyncio
+async def test_owner_alerts_first_contact_only_and_no_group_messages(store):
+    registry=RegistryObserver(store,lambda u:u.effective_user.username=='Owner','Owner')
+    bot=NS(get_chat=AsyncMock(return_value=NS(type='private',username='Owner')),send_message=AsyncMock())
+    ctx=NS(bot=bot)
+    await registry.handle(update(),ctx)
+    student=update(uid=2,username='Student')
+    await registry.handle(student,ctx)
+    await registry.handle(student,ctx)
+    assert bot.send_message.await_count==1
+    assert bot.send_message.call_args.args[0]==1
+    assert '@Student' in bot.send_message.call_args.args[1]
+    group=update(uid=3,username='Student',kind='group')
+    await registry.handle(group,ctx)
+    await registry.handle(group,ctx)
+    assert bot.send_message.await_count==2
+    assert 'Study' in bot.send_message.call_args.args[1]
+    assert bot.send_message.call_args.args[0]==1
+    group.effective_message.reply_text.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_alert_settings_separate_persist_and_forbidden_does_not_break(store):
+    registry=RegistryObserver(store,lambda u:u.effective_user.username=='Owner','Owner')
+    bot=NS(get_chat=AsyncMock(return_value=NS(type='private',username='Owner')),send_message=AsyncMock())
+    ctx=NS(bot=bot)
+    await registry.handle(update(),ctx)
+    store.set_metadata('owner_alerts_users',False)
+    await registry.handle(update(uid=2,username='Student'),ctx)
+    bot.send_message.assert_not_called()
+    reopened=ProfileStore(store.path)
+    assert reopened.metadata('owner_alerts_users') is False
+    bot.send_message.side_effect=Forbidden('owner blocked')
+    await registry.handle(update(uid=3,username='Student',kind='group'),ctx)
+    assert bot.send_message.await_count==1
+    store.set_metadata('owner_alerts_groups',False)
+    other=update(uid=4,username='Student',kind='group')
+    other.effective_chat.id=-20
+    await registry.handle(other,ctx)
+    assert bot.send_message.await_count==1
+
+
+@pytest.mark.asyncio
+async def test_alerts_do_not_send_to_account_with_changed_username(store):
+    registry=RegistryObserver(store,lambda u:u.effective_user.username=='Owner','Owner')
+    ctx=NS(bot=NS(get_chat=AsyncMock(return_value=NS(type='private',username='SomeoneElse')),send_message=AsyncMock()))
+    await registry.handle(update(),ctx)
+    await registry.handle(update(uid=2,username='Student'),ctx)
+    ctx.bot.send_message.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_only_owner_can_change_alerts_and_nonce_prevents_toggle_replay(store):
+    p=panel(store);ctx=NS(user_data={})
+    await p.root(update(),ctx)
+    async def click(action,value='',username='Owner'):
+        nonce=ctx.user_data['admin_tools']['nonce']
+        u=update(username=username,data=f'a:{nonce}:{action}:{value}')
+        await p.callback(u,ctx)
+        return u
+    await click('alerts')
+    await click('alert_set','users_off',username='Intruder')
+    assert store.metadata('owner_alerts_users') is None
+    old=await click('alert_set','users_off')
+    assert store.metadata('owner_alerts_users') is False
+    assert store.metadata('owner_alerts_groups') is None
+    await p.callback(old,ctx)
+    assert store.metadata('owner_alerts_users') is False
+    await click('alert_set','users_on')
+    assert store.metadata('owner_alerts_users') is True

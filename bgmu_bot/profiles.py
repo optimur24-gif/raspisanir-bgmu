@@ -178,10 +178,14 @@ class ProfileStore:
     def touch_contact(self, user_id, username=None, name=None, referral=None):
         now = datetime.now(timezone.utc).isoformat()
         with self.connection() as db:
+            db.execute('BEGIN IMMEDIATE')
+            new = db.execute('SELECT 1 FROM contacts WHERE user_id=?', (user_id,)).fetchone() is None
             db.execute('''INSERT INTO contacts(user_id,username,name,first_seen,last_seen,referral) VALUES (?,?,?,?,?,?)
                 ON CONFLICT(user_id) DO UPDATE SET username=excluded.username,name=excluded.name,
                 last_seen=excluded.last_seen,active=1,referral=COALESCE(contacts.referral,excluded.referral)''',
                 (user_id, username, name, now, now, referral))
+
+        return new
 
     def contact_subscription(self, user_id, enabled):
         with self.connection() as db:
@@ -194,6 +198,8 @@ class ProfileStore:
     def observe_chat(self, chat_id, *, title=None, username=None, status=None, added_by=None, added_by_username=None):
         now = datetime.now(timezone.utc).isoformat()
         with self.connection() as db:
+            db.execute('BEGIN IMMEDIATE')
+            new = db.execute('SELECT 1 FROM chats WHERE chat_id=?', (chat_id,)).fetchone() is None
             db.execute('''INSERT INTO chats(chat_id,title,username,bot_status,added_by,added_by_username,added_at,updated_at,active)
                 VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(chat_id) DO UPDATE SET
                 title=COALESCE(excluded.title,chats.title),username=excluded.username,
@@ -203,6 +209,8 @@ class ProfileStore:
                 added_at=COALESCE(chats.added_at,excluded.added_at),updated_at=excluded.updated_at,
                 active=CASE WHEN excluded.bot_status IS NULL OR excluded.bot_status = 'unavailable' THEN chats.active ELSE excluded.active END''',
                 (chat_id, title, username, status, added_by, added_by_username, now, now, int(status not in ('left','kicked'))))
+
+        return new
 
     def registered_contacts(self):
         with self.connection() as db:
