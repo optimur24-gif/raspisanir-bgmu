@@ -205,6 +205,7 @@ class AdminPanel:
         for group in current:
             blocked = self.profiles.access_blocked(group['chat_id'])
             access_rows.append([(('🔓 ' if blocked else '🔒 ')+(group['title'] or str(group['chat_id']))[:45], 'access',str(group['chat_id']))])
+            access_rows.append([('👥 Участники: '+(group['title'] or str(group['chat_id']))[:40],'members',f"{group['chat_id']},0")])
             saved = self.profiles.chat_group(group['chat_id'])
             actor = '@'+group['added_by_username'] if group['added_by_username'] else (str(group['added_by']) if group['added_by'] else 'Telegram не сообщил')
             when = datetime.fromisoformat(group['added_at']).astimezone(TIMEZONE).strftime('%d.%m %H:%M') if group['added_at'] else 'неизвестно'
@@ -230,6 +231,47 @@ class AdminPanel:
             rows.append(pages)
         rows += [[('🔄 Проверить права этой страницы','check',str(page))], [('← Админ-панель','root','')]]
         await self.show(update, context, '\n'.join(lines), rows)
+
+    async def members(self, update, context, chat_id, page=0, refresh=False):
+        if chat_id >= 0 or not self.profiles.access_target(chat_id):
+            await self.show(update,context,'Чат не найден.',[[('← Чаты','chats','0')]])
+            return
+        warnings = []
+        if refresh:
+            try:
+                count = await context.bot.get_chat_member_count(chat_id)
+                self.profiles.set_metadata(f'member_count:{chat_id}',count)
+            except TelegramError:
+                warnings.append('Telegram не разрешил получить общее число участников.')
+            try:
+                admins = await context.bot.get_chat_administrators(chat_id)
+                for member in admins:
+                    if not getattr(member,'is_anonymous',False):
+                        self.profiles.observe_member(chat_id,member.user)
+            except TelegramError:
+                warnings.append('Список администраторов недоступен.')
+        known = self.profiles.chat_member_count(chat_id)
+        page = min(max(page,0),max(0,(known-1)//self.PAGE_SIZE))
+        target = self.profiles.access_target(chat_id)
+        total = self.profiles.metadata(f'member_count:{chat_id}')
+        lines = [f'👥 Участники: {(target[0] or str(chat_id))[:128]}',
+                 f'Известно боту: {known}. Всего по последней проверке Telegram: {total if total is not None else "не проверено"}.',
+                 'Это неполный список: Telegram не выдаёт всех участников. '
+                 'Учитываются доступные боту сообщения, события входа/выхода и проверенные администраторы.']
+        for member in self.profiles.chat_members(chat_id,offset=page*self.PAGE_SIZE,limit=self.PAGE_SIZE):
+            lines += ['', (member['name'] or 'Без имени')[:128],
+                      ('@'+member['username'] if member['username'] else 'Тег не установлен')+f" · ID {member['user_id']}",
+                      'Статус: '+('наблюдался в чате' if member['active'] else 'зафиксирован выход')]
+        if not known:
+            lines.append('Пока никто не зарегистрирован. Нажми «Обновить», чтобы запросить администраторов.')
+        lines += warnings
+        pages = []
+        if page: pages.append(('‹','members',f'{chat_id},{page-1}'))
+        if (page+1)*self.PAGE_SIZE < known: pages.append(('›','members',f'{chat_id},{page+1}'))
+        rows = [pages] if pages else []
+        rows += [[('🔄 Обновить число и администраторов','members_refresh',f'{chat_id},{page}')],
+                 [('← Чаты','chats','0')]]
+        await self.show(update,context,'\n'.join(lines),rows)
 
     async def access(self, update, context, target_id):
         target = self.profiles.access_target(target_id)
@@ -337,6 +379,10 @@ class AdminPanel:
                 return
             job_id = self.profiles.queue_broadcast(update.effective_user.id,draft['body'],draft['audience'],targets)
             await self.report(update,context,job_id)
+        elif action in ('members','members_refresh') and ',' in value:
+            chat_id, page = value.split(',',1)
+            if chat_id.startswith('-') and chat_id[1:].isdigit() and page.isdigit():
+                await self.members(update,context,int(chat_id),int(page),refresh=action == 'members_refresh')
         elif action in ('access','access_allow','access_deny') and value.lstrip('-').isdigit():
             target_id = int(value)
             if action != 'access' and target_id != update.effective_user.id and self.profiles.access_target(target_id):

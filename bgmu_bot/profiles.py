@@ -49,6 +49,11 @@ class ProfileStore:
                     active INTEGER NOT NULL DEFAULT 1, announcements INTEGER NOT NULL DEFAULT 1,
                     first_seen TEXT NOT NULL, last_seen TEXT NOT NULL, referral TEXT
                 );
+                CREATE TABLE IF NOT EXISTS chat_members (
+                    chat_id INTEGER NOT NULL, user_id INTEGER NOT NULL,
+                    username TEXT, name TEXT, active INTEGER NOT NULL DEFAULT 1,
+                    PRIMARY KEY(chat_id,user_id)
+                );
                 CREATE TABLE IF NOT EXISTS broadcasts (
                     id TEXT PRIMARY KEY, owner_id INTEGER NOT NULL, body TEXT NOT NULL,
                     audience TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'queued',
@@ -170,6 +175,7 @@ class ProfileStore:
 
     def migrate_chat(self, old_id, new_id):
         with self.connection(backup=True) as db:
+            db.execute('INSERT OR IGNORE INTO chat_members SELECT ?,user_id,username,name,active FROM chat_members WHERE chat_id=?',(new_id,old_id))
             db.execute("INSERT OR IGNORE INTO access_blocks SELECT ?,actor_id,updated_at FROM access_blocks WHERE target_id=?", (new_id,old_id))
             db.execute("""INSERT INTO chats(chat_id,path,labels,active,notifications,title,username,bot_status,added_by,added_by_username,added_at,updated_at,announcements)
                 SELECT ?,path,labels,active,notifications,title,username,bot_status,added_by,added_by_username,added_at,updated_at,announcements FROM chats WHERE chat_id=?
@@ -257,6 +263,28 @@ class ProfileStore:
         with self.connection() as db:
             db.row_factory = sqlite3.Row
             return [dict(row) for row in db.execute('SELECT * FROM chats ORDER BY active DESC,title,chat_id')]
+
+    def observe_member(self, chat_id, user, *, active=True):
+        if getattr(user,'is_bot',False):
+            return
+        with self.connection() as db:
+            changed = db.execute("""INSERT INTO chat_members(chat_id,user_id,username,name,active) VALUES (?,?,?,?,?)
+                ON CONFLICT(chat_id,user_id) DO UPDATE SET username=excluded.username,name=excluded.name,active=excluded.active
+                WHERE chat_members.username IS NOT excluded.username OR chat_members.name IS NOT excluded.name
+                OR chat_members.active != excluded.active""",
+                (chat_id,user.id,getattr(user,'username',None),getattr(user,'full_name',None),int(active))).rowcount
+        if changed:
+            self.backup_settings()
+
+    def chat_member_count(self, chat_id):
+        with self.connection() as db:
+            return db.execute('SELECT COUNT(*) FROM chat_members WHERE chat_id=?',(chat_id,)).fetchone()[0]
+
+    def chat_members(self, chat_id, *, offset=0, limit=8):
+        with self.connection() as db:
+            db.row_factory = sqlite3.Row
+            return [dict(row) for row in db.execute('SELECT * FROM chat_members WHERE chat_id=? ORDER BY active DESC,name,user_id LIMIT ? OFFSET ?',
+                                                    (chat_id,limit,offset))]
 
     def group_announcements(self, chat_id, enabled):
         self.register_chat(chat_id)

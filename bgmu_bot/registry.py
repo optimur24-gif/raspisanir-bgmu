@@ -74,6 +74,14 @@ class RegistryObserver:
                     tag, f'ID: {user.id}']))
 
         elif chat.type in ('group','supergroup'):
+            message = update.effective_message
+            if not getattr(message,'sender_chat',None):
+                self.profiles.observe_member(chat.id,user)
+            for joined in getattr(message,'new_chat_members',None) or ():
+                self.profiles.observe_member(chat.id,joined)
+            departed = getattr(message,'left_chat_member',None)
+            if departed:
+                self.profiles.observe_member(chat.id,departed,active=False)
             new_chat = self.profiles.observe_chat(chat.id,title=chat.title,username=getattr(chat,'username',None))
             if new_chat:
                 await self.notify(context, 'groups', self.group_notice(chat))
