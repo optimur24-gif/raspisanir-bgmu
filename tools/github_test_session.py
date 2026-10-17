@@ -187,6 +187,9 @@ def main():
     SESSION.mkdir(exist_ok=True)
     private_path = Path(os.environ["RUNNER_TEMP"]) / ("bgmu-test-" + run_id + ".pem")
     try:
+        # A previous session may commit its final status after this checkout's SHA.
+        # Start the key exchange from that latest branch tip before writing files.
+        sync_branch()
         public = generate_key(private_path)
         public_sha = hashlib.sha256(public).hexdigest()
         (SESSION / "public.pem").write_bytes(public)
