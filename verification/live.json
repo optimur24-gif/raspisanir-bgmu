@@ -1,0 +1,39 @@
+{
+  "status": "passed",
+  "checked_at": "2026-10-17T19:07:30.490898+00:00",
+  "proxy_configured": false,
+  "year": "26",
+  "semester": "1",
+  "scenarios": [
+    {
+      "mode": "group",
+      "entity": "Л-101",
+      "date": "2026-09-02",
+      "semester_events": 234,
+      "day_lessons": 1,
+      "telegram_messages": 1,
+      "subgroups_checked": [
+        "А",
+        "Б"
+      ]
+    },
+    {
+      "mode": "teacher",
+      "entity": "Абдельгани Яссер Осама Сабер",
+      "date": "2026-09-19",
+      "semester_events": 13,
+      "day_lessons": 1,
+      "telegram_messages": 1,
+      "subgroups_checked": []
+    },
+    {
+      "mode": "room",
+      "entity": "Учебная комната № 1 — ГБУЗ РБ ГКБ № 21 Административное здание",
+      "date": "2026-09-24",
+      "semester_events": 6,
+      "day_lessons": 1,
+      "telegram_messages": 1,
+      "subgroups_checked": []
+    }
+  ]
+}
