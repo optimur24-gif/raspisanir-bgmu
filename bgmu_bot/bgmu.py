@@ -1,12 +1,14 @@
 """Adapter for the API used by bgmu-time.ru/assets/app.js."""
 
 from collections import OrderedDict
-from datetime import date, datetime
+import asyncio
+from datetime import date, datetime, timedelta, timezone
 import re
 from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
 
-from .source import Choice, Menu, Schedule, Section, SourceError
+from .cache import ResponseCache
+from .source import Choice, GroupMatch, GroupUnavailable, Menu, Schedule, Section, SourceError
 from .website import WebsiteClient
 
 
@@ -51,15 +53,24 @@ def readable_details(details):
         places = list(dict.fromkeys(str(detail.get(key) or "").strip() for key in ("room", "building")))
         places = [place for place in places if place and not any(place != other and place in other for other in places)]
         place = ", ".join(places) or "Место уточняется"
-        lines.append("\n".join(part for part in (audience, teacher, place) if part))
+        lines.append("\n".join(part for part in ("👥 " + audience if audience else "", "👨‍🏫 " + teacher, "📍 " + place) if part))
     return lines
 
 
 class BGMUSource:
-    def __init__(self, website: WebsiteClient):
+    def __init__(self, website: WebsiteClient, *, cache_ttl=0):
         self.website = website
+        self.cache = ResponseCache(ttl=cache_ttl)
+        self.refresh_lock = asyncio.Lock()
 
     async def _api(self, **params):
+        return await self.cache.get(self._cache_key(params), lambda: self._request_api(**params))
+
+    @staticmethod
+    def _cache_key(params):
+        return tuple(sorted((key, str(value)) for key, value in params.items()))
+
+    async def _request_api(self, **params):
         response = await self.website.get("/api.php", params=params)
         try:
             data = response.json()
@@ -71,6 +82,10 @@ class BGMUSource:
 
     async def _catalog(self, path):
         data = await self._api(action="catalog", type=path[0], year=path[1], semester=path[2])
+        return self._catalog_items(data)
+
+    @staticmethod
+    def _catalog_items(data):
         items = data.get("items")
         if not isinstance(items, list) or any(
             not isinstance(item, dict) or not str(item.get("id", "")).isdigit() or not isinstance(item.get("name"), str)
@@ -102,6 +117,11 @@ class BGMUSource:
     async def _schedule_data(self, path):
         entity_id = self._entity_id(path)
         data = await self._api(action="schedule", type=path[0], id=entity_id, year=path[1], semester=path[2])
+        self._validate_schedule(data)
+        return data
+
+    @staticmethod
+    def _validate_schedule(data):
         events = data.get("events")
         if not isinstance(data.get("entity"), dict) or not isinstance(events, list):
             raise SourceError("Изменился формат расписания сайта.")
@@ -110,7 +130,6 @@ class BGMUSource:
                 raise SourceError("Изменился формат занятия в источнике.")
             if any(not isinstance(detail, dict) for detail in event["details"]):
                 raise SourceError("Изменился формат подгрупп в источнике.")
-        return data
 
     async def menu(self, path):
         self._validate_path(path)
@@ -160,6 +179,9 @@ class BGMUSource:
     async def schedule(self, path, day: date):
         self._validate_path(path)
         data = await self._schedule_data(path)
+        return self._format_schedule(data, path, day)
+
+    def _format_schedule(self, data, path, day):
         subgroup = path[6] if path[0] == "group" and len(path) == 7 and path[6] != "*" else ""
         events = sorted(
             (event for event in data["events"] if event["date"] == day.isoformat()),
@@ -211,6 +233,77 @@ class BGMUSource:
         if subgroup:
             title += " · Подгруппа " + subgroup
         return Schedule(title, day, tuple(sections), tuple(notices), "https://bgmu-time.ru/?" + urlencode(params))
+
+    async def week(self, path, day):
+        self._validate_path(path)
+        data = await self._schedule_data(path)
+        monday = day - timedelta(days=day.weekday())
+        if monday > date.max - timedelta(days=6):
+            raise SourceError("Неделя выходит за пределы допустимых дат.")
+        return tuple(self._format_schedule(data, path, monday + timedelta(days=index)) for index in range(7))
+
+    async def current_group_start(self):
+        data = await self._api(action="period")
+        period = data.get("period") or {}
+        year, semester = str(period.get("year", "")), str(period.get("semester", ""))
+        path = ("group", year, semester)
+        self._validate_path(path)
+        label = str((data.get("years") or {}).get(year, period.get("label") or year))
+        return GroupMatch(path, ("Группы", label, SEMESTERS[semester]))
+
+    @staticmethod
+    def _group_match(start, item, subgroup=None):
+        faculty = str(item.get("faculty") or "")
+        course = course_key(item)
+        path = start.path + (faculty, course, str(item["id"]))
+        labels = start.labels + (faculty or "Факультет не указан", course + " курс" if course != "_" else "Курс не указан", item["name"])
+        if subgroup is not None:
+            path += (subgroup,)
+            labels += ("Все подгруппы" if subgroup == "*" else "Подгруппа " + subgroup,)
+        return GroupMatch(path, labels)
+
+    async def search_groups(self, query):
+        start = await self.current_group_start()
+        items = await self._catalog(start.path)
+        normalize = lambda value: re.sub(r"[^\w]", "", str(value).casefold().replace("ё", "е"))
+        needle = normalize(query)
+        return tuple(self._group_match(start, item) for item in items if needle in normalize(item["name"]))
+
+    async def resolve_group(self, path):
+        start = await self.current_group_start()
+        items = await self._catalog(start.path)
+        selected = next((item for item in items if str(item["id"]) == path[5]), None)
+        if selected is None:
+            raise GroupUnavailable("Группа отсутствует в текущем периоде. Выберите её заново.")
+        return self._group_match(start, selected, path[6] if len(path) == 7 else None)
+
+    async def refresh(self, paths=()):
+        async with self.refresh_lock:
+            # Build the next generation before discarding any current values.
+            # A failed upstream request leaves the previous generation intact.
+            period = await self._request_api(action="period")
+            current = period.get("period") or {}
+            year, semester = str(current.get("year", "")), str(current.get("semester", ""))
+            self._validate_path(("group", year, semester))
+            values = {self._cache_key({"action": "period"}): period}
+            valid_groups = set()
+            for entity_type in TYPES:
+                params = dict(action="catalog", type=entity_type, year=year, semester=semester)
+                catalog = await self._request_api(**params)
+                self._catalog_items(catalog)
+                values[self._cache_key(params)] = catalog
+                if entity_type == "group":
+                    valid_groups = {str(item["id"]) for item in catalog["items"]}
+            group_ids = list(dict.fromkeys(path[5] for path in paths if len(path) >= 6 and path[0] == "group" and path[5] in valid_groups))
+            limit = max(0, self.cache.max_entries - len(values))
+            for group_id in group_ids[:limit]:
+                params = dict(action="schedule", type="group", id=group_id, year=year, semester=semester)
+                payload = await self._request_api(**params)
+                self._validate_schedule(payload)
+                values[self._cache_key(params)] = payload
+            self.cache.replace(values)
+            return {"refreshed_at": datetime.now(timezone.utc).isoformat(), "catalogs": 3,
+                    "groups": min(len(group_ids), limit), "on_demand_groups": max(0, len(group_ids) - limit)}
 
     async def aclose(self):
         await self.website.aclose()

@@ -63,10 +63,10 @@ def calendar_keyboard(month: date, nonce: str) -> InlineKeyboardMarkup:
 
 def render_schedule(schedule: Schedule) -> list[str]:
     """Keep section headings and split before Telegram's message size limit."""
-    heading = f"<b>{escape(schedule.title)}</b>\n{schedule.day:%d.%m.%Y}"
-    sections = list(schedule.sections) or [Section("Расписание", ("На сайте нет занятий на эту дату.",))]
+    heading = f"🎓 <b>{escape(schedule.title)}</b>\n📅 {schedule.day:%d.%m.%Y} · {WEEKDAYS[schedule.day.weekday()].capitalize()}\n━━━━━━━━━━━━━━"
+    sections = list(schedule.sections) or [Section("🌿 Свободный день", ("На сайте нет занятий на эту дату.",))]
     if schedule.notices:
-        sections.append(Section("Информация источника", schedule.notices))
+        sections.append(Section("ℹ️ Об источнике", schedule.notices))
 
     messages: list[str] = []
     current = heading
@@ -87,3 +87,19 @@ def render_schedule(schedule: Schedule) -> list[str]:
                     current += addition
     messages.append(current)
     return messages
+
+
+def render_week(schedules):
+    if not schedules:
+        raise ValueError("A week must contain schedule days")
+    first, last = schedules[0], schedules[-1]
+    sections = []
+    for schedule in schedules:
+        title = f"📅 {WEEKDAYS[schedule.day.weekday()].capitalize()}, {schedule.day:%d.%m}"
+        lessons = tuple("\n".join(("⏰ " + section.title, *section.entries)) for section in schedule.sections)
+        sections.append(Section(title, lessons or ("🌿 Занятий нет — можно выдохнуть.",)))
+    combined = Schedule(
+        f"{first.title} · Неделя {first.day:%d.%m}–{last.day:%d.%m}", first.day,
+        tuple(sections), first.notices, first.source_url.replace("view=day", "view=week"),
+    )
+    return render_schedule(combined)
