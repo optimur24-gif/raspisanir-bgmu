@@ -5,6 +5,7 @@ from .presentation import TIMEZONE
 import logging
 import asyncio
 from .owner_alerts import report_refresh_failure
+from .errors import error_description
 
 
 async def refresh_saved_groups(source, profiles):
@@ -13,6 +14,7 @@ async def refresh_saved_groups(source, profiles):
     except Exception as error:
         profiles.set_metadata("last_refresh_error", {
             "at": datetime.now(timezone.utc).isoformat(), "type": type(error).__name__,
+            "message":error_description(error,source),
         })
         raise
     for consumer in getattr(source, 'schedule_consumers', ()):
@@ -44,7 +46,7 @@ async def morning_refresh(context):
             profiles.set_metadata('snapshot_attempt_day',expected.isoformat())
             await refresh_saved_groups(source,profiles)
     except Exception as error:
-        logging.getLogger(__name__).warning("Утреннее обновление не выполнено (%s)",type(error).__name__)
+        logging.getLogger(__name__).warning("Утреннее обновление не выполнено: %s",error_description(error,source))
         await report_refresh_failure(source,profiles,getattr(context,'bot',None),error)
 
 

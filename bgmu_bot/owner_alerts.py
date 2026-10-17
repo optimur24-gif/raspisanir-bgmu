@@ -7,7 +7,7 @@ import asyncio
 from telegram.error import TelegramError
 
 from .presentation import TIMEZONE
-from .source import SourceError
+from .errors import error_description
 
 
 async def notify_owner(profiles, bot, text, *, kind, expected_username=None):
@@ -51,7 +51,7 @@ async def report_refresh_failure(source, profiles, bot, error):
     previous = summary.get('full_refresh_at')
     if previous:
         previous = datetime.fromisoformat(previous).astimezone(TIMEZONE).strftime('%d.%m.%Y %H:%M')
-    reason = str(error)[:450] if isinstance(error,SourceError) else type(error).__name__
+    reason = error_description(error,source)
     text = (f'⚠️ Не удалось обновить расписание с сайта\n{now:%d.%m.%Y %H:%M}, Уфа\n'
             f'Причина: {reason}\n'
             + (f'Предыдущая локальная копия сохранена: {previous}, Уфа.\nБоты продолжают отвечать из неё.'

@@ -16,6 +16,7 @@ from telegram.ext import (
 
 from .presentation import TIMEZONE, calendar_keyboard, parse_date, render_schedule, render_week, today
 from .profiles import ProfileStore
+from .errors import error_description
 from .refresh import launch_morning_refresh, refresh_saved_groups, refresh_course, start_background, stop_background
 from .commands import schedule_request
 from .group_chats import GroupUI, time_answer
@@ -192,8 +193,10 @@ class BotUI:
         await self.send(update, "🔄 Получаю свежие данные с сайта…")
         try:
             result = await refresh_saved_groups(self.source, self.profiles)
-        except Exception:
-            await self.send(update, "⚠️ Обновление не удалось. Предыдущие данные и привязки групп сохранены.", self.home_keyboard(update))
+        except Exception as error:
+            reason = error_description(error,self.source)
+            logging.getLogger(__name__).warning('Ручное обновление не выполнено: %s',reason)
+            await self.send(update,"⚠️ Обновление не удалось.\nПричина: "+reason+"\nПредыдущая копия и привязки, если они есть, сохранены.",self.home_keyboard(update))
             return
         when = datetime.fromisoformat(result["refreshed_at"]).astimezone(TIMEZONE).strftime("%d.%m %H:%M")
         linked = ''
@@ -293,7 +296,7 @@ class BotUI:
         try:
             result = await refresh_course(self.source, self.profiles, selection['faculty'], selection['course'], period=selection['start'][1:3])
         except Exception as error:
-            text = str(error) if isinstance(error, SourceError) else 'Попробуй ещё раз позже.'
+            text = error_description(error,self.source)
             await self.send(update, '⚠️ Курс не обновлён. Предыдущие данные и привязки сохранены.\n'+text, self.home_keyboard(update))
             return
         when = datetime.fromisoformat(result['refreshed_at']).astimezone(TIMEZONE).strftime('%H:%M')
@@ -596,6 +599,7 @@ def create_application(token: str, source: ScheduleSource, *, profiles=None, adm
     # Telegram API URLs contain the bot token; never enable request URL logs.
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger('apscheduler.executors.default').setLevel(logging.WARNING)
     personal_source = hasattr(source, "current_group_start")
     if personal_source:
         profiles = profiles if profiles is not None else ProfileStore.from_environment()

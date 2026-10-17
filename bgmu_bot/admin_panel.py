@@ -54,7 +54,7 @@ class AdminPanel:
             'Здесь доступны только сведения о подключении бота. Журналов переписки нет.',
             [[('📣 Новая рассылка','audiences','')], [('👤 Пользователи','users','0')], [('👥 Подключённые чаты','chats','0')],
              [('🔔 Уведомления','alerts','')],
-             [('💾 Резервные копии','backups','')],
+             [('💾 Резервные копии','backups','')], [('🩺 Статус обновления','refresh_status','')],
              [('📬 История и статус рассылок','history','')], [('🧹 Очистить историю рассылок','clear_ask','')],
              [('🔄 Обновить данные','refresh',''),('🎯 Обновить курс','course','')]])
 
@@ -109,6 +109,32 @@ class AdminPanel:
         except (OSError, TelegramError):
             await update.effective_message.reply_text('Не удалось отправить копию. Проверь наличие файла и повтори позже.')
         await self.backups(update,context)
+
+    async def refresh_status(self, update, context):
+        source = getattr(self.ui,'source',None)
+        snapshot = getattr(source,'snapshot',None)
+        summary = snapshot.info() if snapshot is not None else {}
+        progress = getattr(source,'refresh_progress',{}) or {}
+        lines = ['🩺 Статус локального расписания']
+        saved = summary.get('full_refresh_at')
+        if saved:
+            when = datetime.fromisoformat(saved).astimezone(TIMEZONE).strftime('%d.%m.%Y %H:%M')
+            lines.append('Последняя полная копия: '+when+', Уфа')
+        else:
+            lines.append('Полная локальная копия ещё не создана.')
+        states = {'running':'идёт загрузка','completed':'завершено','failed':'ошибка'}
+        lines.append('Состояние процесса: '+states.get(progress.get('state'),'нет активной загрузки'))
+        if progress.get('completed') is not None:
+            lines.append('Загружено расписаний в этой попытке: '+str(progress['completed']))
+        request = progress.get('request',{})
+        if request:
+            lines.append('Текущий/последний запрос: '+', '.join(f'{key}={value}' for key,value in request.items()))
+        error = self.profiles.metadata('last_refresh_error')
+        if error:
+            lines += ['Последняя ошибка: '+error.get('message',error.get('type','неизвестно'))]
+        lines.append('Просмотр статуса читает локальные сведения и не обращается к сайту.')
+        await self.show(update,context,'\n'.join(lines),
+                        [[('🔄 Обновить экран','refresh_status','')],[('← Админ-панель','root','')]])
 
     async def audiences(self, update, context):
         self.state(context).pop('draft', None)
@@ -355,6 +381,8 @@ class AdminPanel:
         elif action == 'course':
             state.clear()
             await self.ui.admin_course(update,context,begin=True)
+        elif action == 'refresh_status':
+            await self.refresh_status(update,context)
         elif action == 'backups':
             await self.backups(update,context)
         elif action == 'backup_get' and value in ('settings','schedule'):

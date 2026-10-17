@@ -50,7 +50,9 @@ class DailySnapshot:
             raise SourceError('Не удалось прочитать ежедневную локальную копию.') from None
         if self.last_error:
             data = copy.deepcopy(data)
-            meta = data.setdefault('meta',{})
+            meta = data.get('meta')
+            if not isinstance(meta,dict):
+                meta = data['meta'] = {}
             meta['stale'] = True
             meta['warning'] = ' '.join(filter(None,(meta.get('warning'),'Ежедневное обновление не удалось. Используется предыдущая локальная копия.')))
         return data
