@@ -319,5 +319,45 @@ class BGMUSource:
             return {"refreshed_at": datetime.now(timezone.utc).isoformat(), "catalogs": 3,
                     "groups": min(len(group_ids), limit), "on_demand_groups": max(0, len(group_ids) - limit)}
 
+    async def refresh_course(self, faculty, course, *, period):
+        async with self.refresh_lock:
+            current = await self._request_api(action='period')
+            detected = current.get('period') or {}
+            year, semester = str(detected.get('year', '')), str(detected.get('semester', ''))
+            self._validate_path(('group', year, semester))
+            if (year, semester) != tuple(period):
+                raise SourceError('Учебный период изменился. Выберите факультет и курс заново.')
+            params = dict(action='catalog', type='group', year=year, semester=semester)
+            catalog = await self._request_api(**params)
+            items = self._catalog_items(catalog)
+            selected = [item for item in items if str(item.get('faculty') or '') == faculty and course_key(item) == course]
+            if not selected:
+                raise SourceError('На этом факультете и курсе нет групп. Выберите курс заново.')
+            values = {}
+            semaphore = asyncio.Semaphore(3)
+            async def load(item):
+                async with semaphore:
+                    query = dict(action='schedule', type='group', id=str(item['id']), year=year, semester=semester)
+                    payload = await self._request_api(**query)
+                    self._validate_schedule(payload)
+                    return self._cache_key(query), payload
+            responses = await asyncio.gather(*(load(item) for item in selected), return_exceptions=True)
+            for response in responses:
+                if isinstance(response, BaseException):
+                    raise response
+                key, payload = response
+                values[key] = payload
+            # Publish only after the whole course succeeds; unrelated entries keep
+            # their original age. Catalog/period remain available even for large courses.
+            values[self._cache_key(params)] = catalog
+            values[self._cache_key({'action': 'period'})] = current
+            stale_groups = sum(bool(data['meta'].get('stale')) for key, data in values.items()
+                               if dict(key).get('action') == 'schedule' and isinstance(data.get('meta'), dict))
+            self.cache.merge(values)
+            return {'refreshed_at': datetime.now(timezone.utc).isoformat(), 'faculty': faculty,
+                    'course': course, 'groups': len(selected), 'cached_groups': min(len(selected), self.cache.max_entries-2),
+                    'stale_groups': stale_groups,
+                    'group_ids': [str(item['id']) for item in selected]}
+
     async def aclose(self):
         await self.website.aclose()

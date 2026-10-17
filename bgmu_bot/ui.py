@@ -16,7 +16,7 @@ from telegram.ext import (
 
 from .presentation import TIMEZONE, calendar_keyboard, parse_date, render_schedule, render_week, today
 from .profiles import ProfileStore
-from .refresh import morning_refresh, refresh_saved_groups
+from .refresh import morning_refresh, refresh_saved_groups, refresh_course
 from .commands import schedule_request
 from .group_chats import GroupUI, time_answer
 from .notifications import scheduled_notifications
@@ -30,6 +30,7 @@ MY_GROUP = "👥 Моя группа"
 BIND = "🎓 Выбрать группу"
 OTHER = "🔎 Другие расписания"
 ADMIN = "🔄 Обновить данные"
+ADMIN_COURSE = "🎯 Обновить курс"
 HOME = "🏠 Главная"
 DATE = "🗓 Выбрать дату"
 
@@ -53,6 +54,7 @@ class BotUI:
         rows = [[TODAY, TOMORROW], [WEEK, DATE], [MY_GROUP, OTHER]] if selected else [[BIND], [OTHER]]
         if self.is_admin(update):
             rows.append([ADMIN])
+            rows.append([ADMIN_COURSE])
         return ReplyKeyboardMarkup(rows, resize_keyboard=True, is_persistent=True, input_field_placeholder="Номер группы или дата — например Л-101")
 
     @staticmethod
@@ -169,6 +171,100 @@ class BotUI:
         if 'linked_group_refreshed' in result:
             linked = '\nП-114 передано исходному боту.' if result['linked_group_refreshed'] else '\n⚠️ П-114 для исходного бота обновить не удалось; предыдущая копия сохранена.'
         await self.send(update, f"✅ Данные обновлены · {when}, Уфа\nКаталогов: {result['catalogs']} · групп: {result['groups']}\nСтарый кэш заменён. Личные группы сохранены.{linked}\n\nУтреннее обновление: 07:00 по Уфе.", self.home_keyboard(update, selected=self.profiles.get(update.effective_user.id) is not None))
+
+    async def admin_course(self, update, context, *, page=0, begin=False):
+        if not self.is_admin(update):
+            await self.send(update, 'Эта кнопка доступна только администратору.')
+            return
+        state = self.state(context)
+        try:
+            if begin:
+                start = await self.source.current_group_start()
+                state['course_refresh'] = {'start': start.path, 'stage': 'faculty'}
+            selection = state['course_refresh']
+            path = selection['start']
+            if selection['stage'] == 'course':
+                path += (selection['faculty'],)
+            menu = await self.source.menu(path)
+        except SourceError:
+            await self.send(update, '⚠️ Не удалось получить факультеты и курсы. Попробуй позже.')
+            return
+        options = selection['options'] = menu.choices
+        selection['page'] = min(max(0, page), max(0, (len(options)-1)//self.PAGE_SIZE))
+        first = selection['page'] * self.PAGE_SIZE
+        state['nonce'] = secrets.token_hex(4)
+        key = lambda action, value='': f"{state['nonce']}:{action}:{value}"
+        rows = [[Button(choice.label, callback_data=key('r_pick', str(index)))]
+                for index, choice in enumerate(options) if first <= index < first+self.PAGE_SIZE]
+        pages = []
+        if first:
+            pages.append(Button('‹ Назад', callback_data=key('r_page', str(selection['page']-1))))
+        if first+self.PAGE_SIZE < len(options):
+            pages.append(Button('Далее ›', callback_data=key('r_page', str(selection['page']+1))))
+        if pages:
+            rows.append(pages)
+        if selection['stage'] == 'course':
+            rows.append([Button('← Факультеты', callback_data=key('r_start'))])
+        rows.append([Button(HOME, callback_data=key('home'))])
+        heading = '🎯 Обновление конкретного курса\n\n' + menu.title
+        if selection.get('faculty_label'):
+            heading += '\n🏛 ' + selection['faculty_label']
+        await self.send(update, heading, InlineKeyboardMarkup(rows))
+
+    async def course_pick(self, update, context, value):
+        if not self.is_admin(update):
+            await self.send(update, 'Эта кнопка доступна только администратору.')
+            return
+        selection = self.state(context).get('course_refresh', {})
+        options = selection.get('options', ())
+        if not value.isdigit() or int(value) >= len(options):
+            return
+        choice = options[int(value)]
+        if selection.get('stage') == 'faculty':
+            selection.update(stage='course', faculty=choice.key, faculty_label=choice.label)
+            await self.admin_course(update, context)
+        elif selection.get('stage') == 'course':
+            selection.update(course=choice.key, course_label=choice.label)
+            try:
+                menu = await self.source.menu(selection['start']+(selection['faculty'], choice.key))
+            except SourceError:
+                await self.send(update, '⚠️ Не удалось проверить группы курса. Начни выбор заново.')
+                return
+            selection['stage'] = 'confirm'
+            state = self.state(context)
+            state['nonce'] = secrets.token_hex(4)
+            key = lambda action: f"{state['nonce']}:{action}:"
+            text = f"🎯 {selection['faculty_label']} · {choice.label}\nГрупп: {len(menu.choices)}\n\nПолучить с сайта расписания всех групп этого курса? Личные привязки сохранятся."
+            await self.send(update, text, InlineKeyboardMarkup([
+                [Button('🔄 Обновить этот курс', callback_data=key('r_go'))],
+                [Button('← Выбрать заново', callback_data=key('r_start'))],
+                [Button(HOME, callback_data=key('home'))],
+            ]))
+
+    async def run_course_refresh(self, update, context):
+        if not self.is_admin(update):
+            await self.send(update, 'Эта кнопка доступна только администратору.')
+            return
+        state = self.state(context)
+        selection = state.get('course_refresh', {})
+        if selection.get('stage') != 'confirm':
+            return
+        selection['stage'] = 'running'
+        state['nonce'] = secrets.token_hex(4)
+        await self.send(update, '🔄 Получаю расписания всех групп выбранного курса…')
+        try:
+            result = await refresh_course(self.source, self.profiles, selection['faculty'], selection['course'], period=selection['start'][1:3])
+        except Exception as error:
+            text = str(error) if isinstance(error, SourceError) else 'Попробуй ещё раз позже.'
+            await self.send(update, '⚠️ Курс не обновлён. Предыдущие данные и привязки сохранены.\n'+text, self.home_keyboard(update))
+            return
+        when = datetime.fromisoformat(result['refreshed_at']).astimezone(TIMEZONE).strftime('%H:%M')
+        text = f"✅ {selection['faculty_label']} · {selection['course_label']}\nОбновлено групп: {result['groups']} · {when}, Уфа.\nЛичные привязки сохранены."
+        if result.get('stale_groups'):
+            text += f"\n⚠️ Сам сайт вернул сохранённые копии для {result['stale_groups']} групп."
+        if result.get('linked_group_refreshed') is not None:
+            text += '\nП-114 передано исходному боту.' if result['linked_group_refreshed'] else '\n⚠️ П-114 в исходном боте осталось из предыдущей копии.'
+        await self.send(update, text, self.home_keyboard(update, selected=self.profiles.get(update.effective_user.id) is not None))
 
     async def show_menu(self, update, context, *, page=0, query=""):
         state = self.state(context)
@@ -305,8 +401,23 @@ class BotUI:
         if len(parts) != 3 or parts[0] != state["nonce"]:
             await query.answer("Это меню устарело. Откройте /start.", show_alert=True)
             return
-        await query.answer()
         _, action, value = parts
+        if action.startswith('r_') and not self.is_admin(update):
+            await query.answer('Только для администратора.', show_alert=True)
+            return
+        await query.answer()
+        if action == 'r_start':
+            await self.admin_course(update, context, begin=True)
+            return
+        if action == 'r_pick':
+            await self.course_pick(update, context, value)
+            return
+        if action == 'r_page' and value.isdigit():
+            await self.admin_course(update, context, page=int(value))
+            return
+        if action == 'r_go':
+            await self.run_course_refresh(update, context)
+            return
         if action == "noop":
             return
         if action == "reset":
@@ -366,6 +477,9 @@ class BotUI:
     async def text(self, update, context):
         text = update.effective_message.text.strip()
         if self.personal(update):
+            if text == ADMIN_COURSE:
+                await self.admin_course(update, context, begin=True)
+                return
             if text == ADMIN:
                 await self.admin_refresh(update, context)
                 return

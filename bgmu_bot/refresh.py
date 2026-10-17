@@ -25,3 +25,14 @@ async def morning_refresh(context):
         await refresh_saved_groups(source, profiles)
     except Exception as error:
         logging.getLogger(__name__).warning("Утреннее обновление не выполнено (%s)", type(error).__name__)
+
+
+async def refresh_course(source, profiles, faculty, course, *, period):
+    result = await source.refresh_course(faculty, course, period=period)
+    ids = set(result.pop('group_ids'))
+    for consumer in getattr(source, 'schedule_consumers', ()):
+        path = consumer.path
+        if path and path[5] in ids:
+            result['linked_group_refreshed'] = await consumer.refresh_safely(force=True)
+    profiles.set_metadata('last_course_refresh', result)
+    return result

@@ -60,3 +60,14 @@ class ResponseCache:
             replacement.popitem(last=False)
         self.entries = replacement
         self.generation += 1
+
+    def merge(self, values):
+        # Preserve expiration times of unrelated schedules; publish in one step.
+        replacement = self.entries.copy()
+        for key, value in values.items():
+            replacement.pop(key, None)
+            replacement[key] = Entry(value, self.clock() + self.ttl)
+        while len(replacement) > self.max_entries:
+            replacement.popitem(last=False)
+        self.entries = replacement
+        self.generation += 1
