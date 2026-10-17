@@ -246,6 +246,13 @@ class GroupUI:
         self.profiles.chat_notifications(update.effective_chat.id, enabled)
         await update.effective_message.reply_text('🔔 Рассылка включена. Группа выбирается через /group.' if enabled else '🔕 Рассылка отключена. Команды расписания продолжают работать.')
 
+    async def announcements(self,update,context):
+        if not await self.allowed(update,context,alert=True):
+            return
+        enabled = update.effective_message.text.split('@',1)[0].split(' ',1)[0] == '/announcements_on'
+        self.profiles.group_announcements(update.effective_chat.id,enabled)
+        await update.effective_message.reply_text('Сервисные объявления владельца бота включены.' if enabled else 'Сервисные объявления владельца бота отключены. Расписание продолжает работать.')
+
     async def help(self, update, context):
         await update.effective_message.reply_text(HELP)
 

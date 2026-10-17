@@ -24,7 +24,7 @@ except ImportError:
         return False
 
 from aiogram import Dispatcher, F, Router
-from .policy import ScopedBot as Bot, ScopeMiddleware, EXPECTED_BOT_ID
+from .policy import ScopedBot as Bot, ScopeMiddleware, EXPECTED_BOT_ID, RequestCooldownMiddleware
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.filters import Command, StateFilter
@@ -1180,9 +1180,12 @@ async def handle_unexpected_error(event: ErrorEvent):
 def configure_dispatcher():
     if common_router.parent_router is not None:
         return
+    cooldown = RequestCooldownMiddleware(MAIN_ADMIN_ID, os.environ.get("ADMIN_USERNAME", "Timur0_15"))
     dp.message.outer_middleware(ScopeMiddleware())
+    dp.message.outer_middleware(cooldown)
     dp.message.outer_middleware(SharedScheduleMiddleware(lambda: SCHEDULE_FEED))
     dp.callback_query.outer_middleware(ScopeMiddleware())
+    dp.callback_query.outer_middleware(cooldown)
     dp.callback_query.outer_middleware(SharedScheduleMiddleware(lambda: SCHEDULE_FEED))
     dp.callback_query.outer_middleware(CallbackAcknowledgementMiddleware())
     dp.message.outer_middleware(GroupMemberTrackingMiddleware())

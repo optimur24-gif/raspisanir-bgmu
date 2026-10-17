@@ -11,7 +11,7 @@ from telegram import InlineKeyboardButton as Button
 from telegram import InlineKeyboardMarkup, ReplyKeyboardMarkup
 from telegram.constants import ParseMode
 from telegram.ext import (
-    Application, CallbackQueryHandler, ChatMemberHandler, CommandHandler, MessageHandler, filters,
+    Application, CallbackQueryHandler, ChatMemberHandler, CommandHandler, MessageHandler, TypeHandler, filters,
 )
 
 from .presentation import TIMEZONE, calendar_keyboard, parse_date, render_schedule, render_week, today
@@ -20,6 +20,12 @@ from .refresh import morning_refresh, refresh_saved_groups, refresh_course
 from .commands import schedule_request
 from .group_chats import GroupUI, time_answer
 from .notifications import scheduled_notifications
+from .admin_panel import ADMIN_PANEL, AdminPanel
+from .broadcasts import broadcast_tick
+from .guide import GUIDE
+from .registry import RegistryObserver
+from .traffic import TrafficGuard
+from telegram import Update
 from .source import Choice, GroupUnavailable, Menu, ScheduleSource, SourceError
 
 
@@ -55,6 +61,8 @@ class BotUI:
         if self.is_admin(update):
             rows.append([ADMIN])
             rows.append([ADMIN_COURSE])
+            rows.append([ADMIN_PANEL])
+        rows.append(['📖 Инструкция'])
         return ReplyKeyboardMarkup(rows, resize_keyboard=True, is_persistent=True, input_field_placeholder="Номер группы или дата — например Л-101")
 
     @staticmethod
@@ -76,10 +84,18 @@ class BotUI:
 
     async def start(self, update, context):
         if self.personal(update):
+            context.user_data.pop('admin_tools',None)
             await self.home(update, context)
+            await self.guide(update,context)
             return
         context.user_data.pop("navigation", None)
         await self.show_menu(update, context)
+
+    async def guide(self, update, context):
+        bot = getattr(context,'bot',None)
+        username = getattr(bot,'username',None) if bot else None
+        keyboard = InlineKeyboardMarkup([[Button('➕ Добавить бота в группу',url=f'https://t.me/{username}?startgroup=setup')]]) if username else None
+        await self.send(update,GUIDE,keyboard)
 
     async def home(self, update, context, notice=""):
         context.user_data.pop("navigation", None)
@@ -477,6 +493,9 @@ class BotUI:
     async def text(self, update, context):
         text = update.effective_message.text.strip()
         if self.personal(update):
+            if text == "📖 Инструкция":
+                await self.guide(update, context)
+                return
             if text == ADMIN_COURSE:
                 await self.admin_course(update, context, begin=True)
                 return
@@ -566,7 +585,13 @@ def create_application(token: str, source: ScheduleSource, *, profiles=None, adm
             await source.aclose()
         builder.post_shutdown(close_source)
     application = builder.build()
+    panel = AdminPanel(profiles,ui) if personal_source else None
     if personal_source:
+        profiles.recover_broadcasts()
+        application.add_handler(TypeHandler(Update,TrafficGuard(ui.is_admin).handle),group=-9)
+        application.add_handler(TypeHandler(Update,RegistryObserver(profiles).handle),group=-10)
+        application.job_queue.run_repeating(broadcast_tick,interval=1,first=3,data=profiles,
+                                           name='bgmu-admin-broadcasts',job_kwargs={'max_instances':1,'coalesce':True})
         application.job_queue.run_daily(
             morning_refresh, time(hour=7, tzinfo=TIMEZONE),
             data=(source, profiles), name="bgmu-morning-refresh",
@@ -581,7 +606,20 @@ def create_application(token: str, source: ScheduleSource, *, profiles=None, adm
     if personal_source:
         application.add_handler(CommandHandler("group", ui.begin_binding, filters=private))
         application.add_handler(CommandHandler("refresh", ui.admin_refresh, filters=private))
+        application.add_handler(CommandHandler(['admin','broadcast'],panel.root,filters=private))
+        async def subscription(update,context):
+            enabled = update.effective_message.text.split('@',1)[0].split(' ',1)[0] == '/subscribe'
+            profiles.contact_subscription(update.effective_user.id,enabled)
+            await update.effective_message.reply_text('Объявления владельца включены.' if enabled else 'Объявления владельца отключены. Расписание продолжает работать.')
+        application.add_handler(CommandHandler(['subscribe','unsubscribe','stop'],subscription,filters=private))
+        async def cancel_admin(update,context):
+            context.user_data.pop('admin_tools',None)
+            await update.effective_message.reply_text('Ввод отменён. /admin — админ-панель; /start — главная.')
+        application.add_handler(CommandHandler('cancel',cancel_admin,filters=private))
     async def help_command(update, context):
+        if personal_source:
+            await ui.guide(update,context)
+            return
         await update.effective_message.reply_text(
             "🎓 Напиши номер группы или нажми «Выбрать группу» — я сохраню твой выбор.\n"
             "📅 Сегодня · 🌤 Завтра · 🗓 Неделя — расписание в одном нажатии.\n"
@@ -601,10 +639,14 @@ def create_application(token: str, source: ScheduleSource, *, profiles=None, adm
         application.add_handler(CommandHandler(['group', 'setgroup'], groups.configure, filters=group_filter))
         application.add_handler(CommandHandler(['start', 'help'], groups.help, filters=group_filter))
         application.add_handler(CommandHandler(['notifications_on', 'notifications_off'], groups.notifications, filters=group_filter))
+        application.add_handler(CommandHandler(['announcements_on','announcements_off'],groups.announcements,filters=group_filter))
         application.add_handler(MessageHandler(group_filter & filters.TEXT, groups.text))
 
         async def callback(update, context):
             chat = update.effective_chat
+            if (update.callback_query.data or '').startswith('a:'):
+                await panel.callback(update,context)
+                return
             if chat and chat.type in ('group', 'supergroup'):
                 if (update.callback_query.data or '').startswith('g:'):
                     await groups.callback(update, context)
@@ -616,7 +658,14 @@ def create_application(token: str, source: ScheduleSource, *, profiles=None, adm
         application.add_handler(CallbackQueryHandler(callback))
     else:
         application.add_handler(CallbackQueryHandler(ui.callback))
-    application.add_handler(MessageHandler(private & filters.TEXT & ~filters.COMMAND, ui.text))
+    async def private_text(update,context):
+        if panel and update.effective_message.text == ADMIN_PANEL:
+            await panel.root(update,context)
+        elif panel and await panel.text(update,context):
+            return
+        else:
+            await ui.text(update,context)
+    application.add_handler(MessageHandler(private & filters.TEXT & ~filters.COMMAND, private_text))
 
     async def on_error(update, context):
         logging.getLogger(__name__).error(

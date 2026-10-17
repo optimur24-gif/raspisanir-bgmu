@@ -31,3 +31,29 @@ class ScopeMiddleware(BaseMiddleware):
         if chat.type != "private" and chat.id != GROUP_CHAT_ID:
             return
         return await handler(event, data)
+
+
+class RequestCooldownMiddleware(BaseMiddleware):
+    """Limit commands/buttons without throttling membership service events."""
+
+    def __init__(self, owner_id, owner_username, limiter=None):
+        from bgmu_bot.traffic import Cooldown
+        self.owner_id = owner_id
+        self.owner_username = owner_username.lstrip('@').casefold()
+        self.limiter = limiter or Cooldown()
+
+    async def __call__(self, handler, event, data):
+        user = getattr(event, 'from_user', None)
+        if not user or user.id == self.owner_id or (
+            self.owner_username and (getattr(user, 'username', None) or '').casefold() == self.owner_username
+        ):
+            return await handler(event, data)
+        if getattr(event, 'new_chat_members', None) or getattr(event, 'left_chat_member', None):
+            return await handler(event, data)
+        callback = getattr(event, 'data', None) is not None
+        if not callback and not getattr(event, 'text', None):
+            return await handler(event, data)
+        if self.limiter.allow(user.id):
+            return await handler(event, data)
+        if callback:
+            await event.answer('Подожди 2 секунды между запросами.')

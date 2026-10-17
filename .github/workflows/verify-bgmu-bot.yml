@@ -2,7 +2,7 @@ name: Verify BGMU bot against the website
 
 on:
   push:
-    branches: [codex/bgmu-telegram-bot, codex/personal-schedule, codex/group-chat-schedules, codex/shared-p114, codex/course-refresh]
+    branches: [codex/bgmu-telegram-bot, codex/personal-schedule, codex/group-chat-schedules, codex/shared-p114, codex/course-refresh, codex/admin-broadcasts]
     paths:
       - bgmu_bot/**
       - restricted_bot/**
