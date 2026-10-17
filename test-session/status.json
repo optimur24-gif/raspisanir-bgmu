@@ -1,7 +1,7 @@
 {
   "run_id": "39064977675",
   "state": "running",
-  "received_updates": 3,
+  "received_updates": 11,
   "public_handler_errors": 0,
   "restricted_updates": 1,
   "interface": "shared-p114",
@@ -14,5 +14,6 @@
   "both_bots_polling": true,
   "shared_source": true,
   "started_at": "2026-10-17T20:02:38.604776+00:00",
-  "planned_end_at": "2026-10-17T20:42:38.604776+00:00"
+  "planned_end_at": "2026-10-17T20:42:38.604776+00:00",
+  "heartbeat_at": "2026-10-17T20:03:10.053022+00:00"
 }
