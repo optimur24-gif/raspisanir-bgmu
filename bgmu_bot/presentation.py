@@ -61,20 +61,22 @@ def calendar_keyboard(month: date, nonce: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(rows)
 
 
-def render_schedule(schedule: Schedule) -> list[str]:
+def render_schedule(schedule: Schedule, *, show_date=True) -> list[str]:
     """Keep section headings and split before Telegram's message size limit."""
-    heading = f"🎓 <b>{escape(schedule.title)}</b>\n📅 {schedule.day:%d.%m.%Y} · {WEEKDAYS[schedule.day.weekday()].capitalize()}\n━━━━━━━━━━━━━━"
+    heading = f"<b>{escape(schedule.title)}</b>" + (f"\n{schedule.day:%d.%m.%Y}" if show_date else '')
     sections = list(schedule.sections) or [Section("🌿 Свободный день", ("На сайте нет занятий на эту дату.",))]
-    if schedule.notices:
-        sections.append(Section("ℹ️ Об источнике", schedule.notices))
+    notices = schedule.display_notices if schedule.display_notices is not None else schedule.notices
+    if notices:
+        sections.append(Section("⚠️", notices))
 
     messages: list[str] = []
     current = heading
     # The conservative limit applies before HTML escaping too: it leaves room
     # for headings and keeps each message below Telegram's UTF-16 limit.
     for section in sections:
-        section_heading = f"<b>{escape(section.title)}</b>"
-        for index, entry in enumerate(section.entries or ("Нет занятий.",)):
+        section_heading = f"<b>{escape(section.short_title or section.title)}</b>"
+        entries = section.short_entries if section.short_entries is not None else section.entries
+        for index, entry in enumerate(entries or ("Нет занятий.",)):
             # Escape after splitting so HTML entities are never cut in half.
             for offset in range(0, max(1, len(entry)), 450):
                 piece = escape(entry[offset:offset + 450])
@@ -95,11 +97,12 @@ def render_week(schedules):
     first, last = schedules[0], schedules[-1]
     sections = []
     for schedule in schedules:
-        title = f"📅 {WEEKDAYS[schedule.day.weekday()].capitalize()}, {schedule.day:%d.%m}"
-        lessons = tuple("\n".join(("⏰ " + section.title, *section.entries)) for section in schedule.sections)
-        sections.append(Section(title, lessons or ("🌿 Занятий нет — можно выдохнуть.",)))
+        title = f"{schedule.day:%d.%m.%Y}"
+        lessons = tuple("\n".join((section.short_title or section.title,
+                                  *(section.short_entries if section.short_entries is not None else section.entries))) for section in schedule.sections)
+        sections.append(Section(title, lessons or ("На сайте нет занятий на эту дату.",)))
     combined = Schedule(
-        f"{first.title} · Неделя {first.day:%d.%m}–{last.day:%d.%m}", first.day,
-        tuple(sections), first.notices, first.source_url.replace("view=day", "view=week"),
+        first.title, first.day,
+        tuple(sections), first.notices, first.source_url.replace("view=day", "view=week"), first.display_notices,
     )
-    return render_schedule(combined)
+    return render_schedule(combined, show_date=False)

@@ -35,6 +35,8 @@ class Menu:
 class Section:
     title: str
     entries: tuple[str, ...]
+    short_title: str | None = None
+    short_entries: tuple[str, ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -44,6 +46,7 @@ class Schedule:
     sections: tuple[Section, ...]
     notices: tuple[str, ...] = ()
     source_url: str = "https://bgmu-time.ru/"
+    display_notices: tuple[str, ...] | None = None
 
 
 class ScheduleSource(Protocol):

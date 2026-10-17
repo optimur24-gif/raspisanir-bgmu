@@ -109,6 +109,18 @@ async def verify_live(website, *, include_linked=False):
         if count != len(feed.rows):
             raise SourceError('Передача расписания П-114 в исходный бот потеряла занятия.')
         result['linked_schedule'] = {'group': feed.group, 'semester_events': count, 'memory_only': True}
+        from .bgmu import course_key
+        cohorts = {}
+        for item in await source._catalog(('group', year, semester)):
+            faculty, course = str(item.get('faculty') or ''), course_key(item)
+            if faculty and course in ('1', '2', '3', '4', '5', '6'):
+                cohorts[(faculty, course)] = cohorts.get((faculty, course), 0) + 1
+        if not cohorts:
+            raise SourceError('Сайт не вернул курсы для проверки обновления.')
+        faculty, course = min(cohorts, key=lambda key: (cohorts[key], key))
+        course_result = await source.refresh_course(faculty, course, period=(year, semester))
+        course_result.pop('group_ids')
+        result['course_refresh'] = course_result
     return result
 
 
