@@ -26,7 +26,8 @@ jobs:
         with:
           version: "0.12.23"
       - run: uv sync --locked
-      - name: Run both bots for forty minutes
+      - name: Run updated bots until the agreed test deadline
         env:
+          BGMU_TEST_END_AT: "2026-10-17T20:55:32+00:00"
           BGMU_PROXY_URL: ${{ secrets.BGMU_PROXY_URL }}
         run: uv run --locked python -m tools.github_test_session

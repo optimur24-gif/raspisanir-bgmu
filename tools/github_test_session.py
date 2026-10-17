@@ -111,7 +111,8 @@ async def serve(credentials, run_id, seconds):
     handler.setFormatter(RedactingFormatter([token, restricted_token, os.environ.get('BGMU_PROXY_URL', '')]))
     logging.basicConfig(level=logging.WARNING, handlers=[handler], force=True)
     report = {'run_id': run_id, 'state': 'initializing', 'received_updates': 0,
-              'public_handler_errors': 0, 'restricted_updates': 0, 'interface': 'course-refresh-compact',
+              'public_handler_errors': 0, 'restricted_updates': 0, 'interface': 'admin-broadcasts-registry',
+              'admin_broadcasts': True, 'owner_registry': True, 'message_journals': False,
               'admin_course_refresh': True, 'schedule_format': 'group-date-time-subject-room-teacher-initials',
               'requested_duration_seconds': seconds}
     stop, restricted_ready = asyncio.Event(), asyncio.Event()
@@ -191,6 +192,9 @@ async def serve(credentials, run_id, seconds):
             if restricted.SCHEDULE_FEED is not feed:
                 raise RuntimeError('shared_schedule_not_connected')
             started = datetime.now(timezone.utc)
+            end_at = os.environ.get('BGMU_TEST_END_AT')
+            if end_at:
+                seconds = max(0, int((datetime.fromisoformat(end_at)-started).total_seconds()))
             report.update(state='running', both_bots_polling=True, shared_source=True,
                           started_at=started.isoformat(), planned_end_at=(started + timedelta(seconds=seconds)).isoformat())
             publish_status(report)
