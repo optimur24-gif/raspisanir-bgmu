@@ -32,6 +32,7 @@ async def verify_live(website, *, include_linked=False):
     period = await source._api(action="period")
     year, semester = str(period["period"]["year"]), str(period["period"]["semester"])
     scenarios = []
+    offline_cases = []
     personal_path = None
     prefixes = await source.group_prefixes()
     for mode in (await source.menu(())).choices:
@@ -73,6 +74,7 @@ async def verify_live(website, *, include_linked=False):
         schedule = await source.schedule(path, day)
         if available_dates and not schedule.sections:
             raise SourceError("День с занятиями источника отобразился пустым.")
+        offline_cases.append((path,day,schedule))
         messages = render_schedule(schedule)
         week = await source.week(path, day)
         week_messages = render_week(week)
@@ -95,9 +97,29 @@ async def verify_live(website, *, include_linked=False):
             "telegram_messages": len(messages), "subgroups_checked": checked_subgroups,
             "week_days": len(week), "week_messages": len(week_messages),
         })
+    # Validate the production disk-read path with a transport that fails on HTTP.
+    import tempfile
+    import httpx
+    from .snapshot import DailySnapshot
+    with tempfile.TemporaryDirectory() as directory:
+        snapshot = DailySnapshot(Path(directory)/'schedule.sqlite3')
+        with snapshot.stage() as writer:
+            for key,entry in source.cache.entries.items():
+                writer.put(dict(key),entry.value)
+            writer.summary({'smoke_test':True})
+        def reject_network(request):
+            raise AssertionError('Offline user read attempted a website request')
+        async with WebsiteClient(transport=httpx.MockTransport(reject_network)) as offline_website:
+            for _ in range(2):
+                restored = BGMUSource(offline_website)
+                restored.use_snapshot(snapshot.path)
+                for path,day,expected in offline_cases:
+                    if await restored.schedule(path,day) != expected:
+                        raise SourceError('Локальная копия изменила расписание после перезапуска.')
     refreshed = await source.refresh((personal_path,) if personal_path else ())
     result = {"year": year, "semester": semester, "scenarios": scenarios,
-              "personal_group_lookup": personal_path is not None, "group_prefixes": prefixes, "refresh": refreshed}
+              "personal_group_lookup": personal_path is not None, "group_prefixes": prefixes, "refresh": refreshed,
+              "offline_snapshot": {"restart_passes":2,"entity_types_checked":3,"website_requests_during_reads":0}}
     if include_linked:
         from .shared_schedule import SharedSchedule
         import sqlite3

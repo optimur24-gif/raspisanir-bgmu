@@ -226,10 +226,14 @@ async def test_daily_job_uses_confirmed_ufa_time_and_same_safe_refresh(profiles)
         assert str(job.job.trigger.timezone) == 'Asia/Yekaterinburg'
         fields = {field.name: str(field) for field in job.job.trigger.fields}
         assert fields['hour'] == '7' and fields['minute'] == '0'
-        assert source.cache.ttl == 300
+        assert source.cache.ttl == 86400
+        assert source.snapshot is not None
+        source.snapshot.min_interval = 0
         profiles.save(123, PATH, LABELS)
         await morning_refresh(SimpleNamespace(job=job))
-        assert profiles.metadata('last_refresh')['groups'] == 1
+        assert profiles.metadata('last_refresh')['groups'] == 3
+        assert profiles.metadata('last_refresh')['teachers'] == 1
+        assert profiles.metadata('last_refresh')['rooms'] == 1
         assert profiles.get(123).path == PATH
 
 

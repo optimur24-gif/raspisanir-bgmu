@@ -16,7 +16,7 @@ from telegram.ext import (
 
 from .presentation import TIMEZONE, calendar_keyboard, parse_date, render_schedule, render_week, today
 from .profiles import ProfileStore
-from .refresh import morning_refresh, refresh_saved_groups, refresh_course
+from .refresh import launch_morning_refresh, refresh_saved_groups, refresh_course, start_background, stop_background
 from .commands import schedule_request
 from .group_chats import GroupUI, time_answer
 from .notifications import scheduled_notifications
@@ -172,7 +172,20 @@ class BotUI:
         self.state(context).update(path=match.path, labels=match.labels, ready=True, binding=False, screen="schedule", matches=None)
         return True
 
+    async def _queue_manual_refresh(self, update, context, callback):
+        active = getattr(self.source,'active_refresh_task',None)
+        if self.source.refresh_lock.locked() or (active is not None and not active.done()):
+            await self.send(update,'⏳ Обновление уже выполняется. Остальным пользователям доступна сохранённая копия.')
+            return
+        self.source.active_refresh_task = start_background(self.source,callback(update,context))
+
     async def admin_refresh(self, update, context):
+        if self.is_admin(update) and getattr(self.source,'snapshot',None) is not None:
+            await self._queue_manual_refresh(update,context,self._admin_refresh_now)
+        else:
+            await self._admin_refresh_now(update,context)
+
+    async def _admin_refresh_now(self, update, context):
         if not self.is_admin(update):
             await self.send(update, "Эта кнопка доступна только администратору.")
             return
@@ -186,6 +199,9 @@ class BotUI:
         linked = ''
         if 'linked_group_refreshed' in result:
             linked = '\nП-114 передано исходному боту.' if result['linked_group_refreshed'] else '\n⚠️ П-114 для исходного бота обновить не удалось; предыдущая копия сохранена.'
+        if result.get('local_snapshot'):
+            await self.send(update,f"✅ Ежедневная локальная копия обновлена · {when}, Уфа\nГрупп: {result['groups']} · преподавателей: {result['teachers']} · аудиторий: {result['rooms']}\nПользователи получают данные только из этой копии.{linked}\nОбновление автоматически в 07:00 по Уфе.",self.home_keyboard(update))
+            return
         await self.send(update, f"✅ Данные обновлены · {when}, Уфа\nКаталогов: {result['catalogs']} · групп: {result['groups']}\nСтарый кэш заменён. Личные группы сохранены.{linked}\n\nУтреннее обновление: 07:00 по Уфе.", self.home_keyboard(update, selected=self.profiles.get(update.effective_user.id) is not None))
 
     async def admin_course(self, update, context, *, page=0, begin=False):
@@ -258,6 +274,12 @@ class BotUI:
             ]))
 
     async def run_course_refresh(self, update, context):
+        if self.is_admin(update) and getattr(self.source,'snapshot',None) is not None:
+            await self._queue_manual_refresh(update,context,self._run_course_refresh_now)
+        else:
+            await self._run_course_refresh_now(update,context)
+
+    async def _run_course_refresh_now(self, update, context):
         if not self.is_admin(update):
             await self.send(update, 'Эта кнопка доступна только администратору.')
             return
@@ -402,7 +424,8 @@ class BotUI:
         state["nonce"] = secrets.token_hex(4)
         await self.send(
             update,
-            "Не удалось получить данные с сайта расписания. Попробуйте ещё раз позже.",
+            ("Этих данных пока нет в локальной копии. Дождитесь фонового обновления или обратитесь к владельцу бота. Запрос пользователя не обращается к сайту."
+             if getattr(self.source,'snapshot',None) is not None else "Не удалось получить данные с сайта расписания. Попробуйте ещё раз позже."),
             InlineKeyboardMarkup([
                 [Button("Повторить", callback_data=f"{state['nonce']}:{action}:{value}")],
                 [Button("Начать заново", callback_data=f"{state['nonce']}:reset:")],
@@ -582,14 +605,17 @@ def create_application(token: str, source: ScheduleSource, *, profiles=None, adm
     builder = Application.builder().token(token)
     if hasattr(source, "aclose"):
         async def close_source(application):
+            await stop_background(source)
             await source.aclose()
         builder.post_shutdown(close_source)
     application = builder.build()
     panel = AdminPanel(profiles,ui) if personal_source else None
     if personal_source:
-        source.cache.on_change = profiles.backups.save_schedule
-        if source.cache.entries:
-            profiles.backups.save_schedule(source.cache.entries)
+        if getattr(source,'snapshot',None) is None:
+            source.use_snapshot(profiles.path.parent/'schedule.sqlite3')
+        source.snapshot.after_publish = profiles.backups.save_snapshot
+        source.snapshot.last_error = bool(profiles.metadata('last_refresh_error'))
+        source.cache.on_change = None
         if not (profiles.backups.directory/'settings.sqlite3').exists():
             profiles.backup_settings()
         profiles.recover_broadcasts()
@@ -598,8 +624,9 @@ def create_application(token: str, source: ScheduleSource, *, profiles=None, adm
         application.add_handler(TypeHandler(Update,RegistryObserver(profiles,ui.is_admin,ui.admin_username).handle),group=-10)
         application.job_queue.run_repeating(broadcast_tick,interval=1,first=3,data=profiles,
                                            name='bgmu-admin-broadcasts',job_kwargs={'max_instances':1,'coalesce':True})
+        application.job_queue.run_once(launch_morning_refresh,when=1,data=(source,profiles),name='bgmu-initial-snapshot')
         application.job_queue.run_daily(
-            morning_refresh, time(hour=7, tzinfo=TIMEZONE),
+            launch_morning_refresh, time(hour=7, tzinfo=TIMEZONE),
             data=(source, profiles), name="bgmu-morning-refresh",
             job_kwargs={"misfire_grace_time": 3600, "coalesce": True},
         )
@@ -633,7 +660,7 @@ def create_application(token: str, source: ScheduleSource, *, profiles=None, adm
             "«Другие расписания» — преподаватели, аудитории и другие периоды.\n"
             "Можно отправить дату ДД.ММ.ГГГГ или открыть календарь.\n"
             "/start и /menu — главная; /refresh — обновление для администратора.\n"
-            "Источник: bgmu-time.ru. Кэш в памяти — 5 минут; обновление в 07:00 по Уфе (UTC+5)."
+            "Источник: ежедневная локальная копия bgmu-time.ru. Обновление в 07:00 по Уфе (UTC+5)."
         )
     application.add_handler(CommandHandler("help", help_command, filters=private))
     if personal_source:

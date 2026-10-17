@@ -85,7 +85,7 @@ class SharedSchedule:
             return True
         except SourceError as error:
             self.retry_at = time.monotonic() + 30
-            self.warning = 'Не удалось обновить П-114 с сайта. ' + ('Показана предыдущая копия.' if self.ready else 'Расписание пока недоступно.')
+            self.warning = ('Не удалось прочитать локальное расписание П-114. ' if getattr(self.source,'snapshot',None) is not None else 'Не удалось обновить П-114 с сайта. ') + ('Показана предыдущая копия.' if self.ready else 'Расписание пока недоступно.')
             logging.getLogger(__name__).warning('Обновление П-114 не выполнено (%s)', type(error).__name__)
             return False
 

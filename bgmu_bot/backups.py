@@ -38,6 +38,18 @@ class BackupStore:
                 Path(temporary).unlink(missing_ok=True)
 
     def save_settings(self, source):
+        return self.save_sqlite(source,'settings.sqlite3',strip_outbox=True)
+
+    def save_snapshot(self, source):
+        success = self.save_sqlite(source,'schedule.sqlite3')
+        if success:
+            try:
+                (self.directory/'schedule.json.gz').unlink(missing_ok=True)
+            except OSError:
+                logging.getLogger(__name__).warning('Не удалось удалить прежний формат копии расписания')
+        return success
+
+    def save_sqlite(self, source, filename, *, strip_outbox=False):
         def write(path):
             original = sqlite3.connect(source, timeout=5)
             copy = sqlite3.connect(path)
@@ -47,7 +59,7 @@ class BackupStore:
                 # Restoring preferences must never replay an old announcement queue.
                 tables = {row[0] for row in copy.execute("SELECT name FROM sqlite_master WHERE type='table'")}
                 with copy:
-                    for table in ('broadcast_recipients','broadcasts'):
+                    for table in (('broadcast_recipients','broadcasts') if strip_outbox else ()):
                         if table in tables:
                             copy.execute('DELETE FROM '+table)
                 if copy.execute('PRAGMA quick_check').fetchone()[0] != 'ok':
@@ -55,7 +67,7 @@ class BackupStore:
             finally:
                 copy.close()
                 original.close()
-        return self._replace('settings.sqlite3', write)
+        return self._replace(filename,write)
 
     def save_schedule(self, entries):
         # Catalog-only startup and failed source requests must not erase a timetable.

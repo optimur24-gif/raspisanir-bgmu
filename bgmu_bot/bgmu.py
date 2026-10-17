@@ -63,9 +63,19 @@ class BGMUSource:
         self.website = website
         self.cache = ResponseCache(ttl=cache_ttl)
         self.refresh_lock = asyncio.Lock()
+        self.snapshot = None
+        self.daily_refresh_lock = asyncio.Lock()
+
+    def use_snapshot(self, path):
+        from .snapshot import DailySnapshot
+        self.snapshot = DailySnapshot(path)
+        self.cache.replace({})
+        self.cache.ttl = 86400
 
     async def _api(self, **params):
         async def load():
+            if self.snapshot is not None:
+                return self.snapshot.get(params)
             data = await self._request_api(**params)
             if params.get('action') == 'schedule':
                 self._validate_schedule(data)
@@ -77,6 +87,8 @@ class BGMUSource:
         return tuple(sorted((key, str(value)) for key, value in params.items()))
 
     async def _request_api(self, **params):
+        if self.snapshot is not None:
+            await self.snapshot.wait_for_request()
         response = await self.website.get("/api.php", params=params)
         try:
             data = response.json()
@@ -144,11 +156,18 @@ class BGMUSource:
         if len(path) == 1:
             data = await self._api(action="period")
             years = data.get("years")
+            if self.snapshot is not None and isinstance(years,dict):
+                current_year = str((data.get('period') or {}).get('year',''))
+                years = {key:value for key,value in years.items() if str(key) == current_year}
             if not isinstance(years, dict) or not years:
                 raise SourceError("Сайт не вернул доступные учебные годы.")
             return Menu("Выберите учебный год", tuple(
                 Choice(str(key), str(label)) for key, label in sorted(years.items(), key=lambda pair: natural_key(pair[0]), reverse=True)
             ))
+        if len(path) == 2 and self.snapshot is not None:
+            period = (await self._api(action='period'))['period']
+            semester = str(period['semester'])
+            return Menu('Выберите семестр',(Choice(semester,SEMESTERS[semester]),))
         if len(path) == 2:
             return Menu("Выберите семестр", tuple(Choice(key, label) for key, label in SEMESTERS.items()))
         if path[0] != "group":
@@ -303,6 +322,8 @@ class BGMUSource:
 
     async def refresh(self, paths=()):
         async with self.refresh_lock:
+            if self.snapshot is not None:
+                return await self._refresh_snapshot()
             # Build the next generation before discarding any current values.
             # A failed upstream request leaves the previous generation intact.
             period = await self._request_api(action="period")
@@ -331,6 +352,8 @@ class BGMUSource:
 
     async def refresh_course(self, faculty, course, *, period):
         async with self.refresh_lock:
+            if self.snapshot is not None:
+                return await self._refresh_course_snapshot(faculty,course,period=period)
             current = await self._request_api(action='period')
             detected = current.get('period') or {}
             year, semester = str(detected.get('year', '')), str(detected.get('semester', ''))
@@ -371,3 +394,77 @@ class BGMUSource:
 
     async def aclose(self):
         await self.website.aclose()
+
+    async def _refresh_snapshot(self):
+        try:
+            current = await self._request_api(action='period')
+            detected = current.get('period') or {}
+            year, semester = str(detected.get('year','')), str(detected.get('semester',''))
+            self._validate_path(('group',year,semester))
+            counts = {}
+            stale = 0
+            with self.snapshot.stage() as writer:
+                writer.put({'action':'period'},current)
+                for kind in TYPES:
+                    query = dict(action='catalog',type=kind,year=year,semester=semester)
+                    catalog = await self._request_api(**query)
+                    items = self._catalog_items(catalog)
+                    if kind == 'group' and not items:
+                        raise SourceError('Сайт вернул пустой каталог групп. Предыдущая копия сохранена.')
+                    writer.put(query,catalog)
+                    counts[kind] = len(items)
+                    for item in items:
+                        params = dict(action='schedule',type=kind,id=str(item['id']),year=year,semester=semester)
+                        payload = await self._request_api(**params)
+                        self._validate_schedule(payload)
+                        stale += int(bool((payload.get('meta') or {}).get('stale')))
+                        writer.put(params,payload)
+                result = {'refreshed_at':datetime.now(timezone.utc).isoformat(), 'catalogs':3,
+                          'groups':counts['group'],'teachers':counts['teacher'],'rooms':counts['room'],
+                          'stale_schedules':stale,'on_demand_groups':0,'local_snapshot':True,
+                          'year':year,'semester':semester}
+                writer.summary({**result,'full_refresh_at':result['refreshed_at']})
+            self.snapshot.last_error = False
+            self.cache.replace({})
+            return result
+        except Exception:
+            self.snapshot.last_error = True
+            self.cache.replace({})
+            raise
+
+    async def _refresh_course_snapshot(self, faculty, course, *, period):
+        if not self.snapshot.available:
+            raise SourceError('Сначала нужно полное обновление локальной копии.')
+        detected = self.snapshot.get({'action':'period'})['period']
+        if (str(detected['year']),str(detected['semester'])) != tuple(period):
+            raise SourceError('Учебный период изменился. Выполните полное обновление.')
+        current = await self._request_api(action='period')
+        year, semester = str(current['period']['year']), str(current['period']['semester'])
+        if (year,semester) != tuple(period):
+            raise SourceError('Учебный период изменился. Выполните полное обновление.')
+        query = dict(action='catalog',type='group',year=year,semester=semester)
+        catalog = await self._request_api(**query)
+        selected = [item for item in self._catalog_items(catalog) if str(item.get('faculty') or '') == faculty and course_key(item) == course]
+        if not selected:
+            raise SourceError('На выбранном факультете и курсе групп нет.')
+        stale = 0
+        with self.snapshot.stage(merge=True) as writer:
+            for item in selected:
+                params = dict(action='schedule',type='group',id=str(item['id']),year=year,semester=semester)
+                payload = await self._request_api(**params)
+                self._validate_schedule(payload)
+                stale += int(bool((payload.get('meta') or {}).get('stale')))
+                writer.put(params,payload)
+            previous_catalog = self.snapshot.get(query)
+            other_items = [item for item in self._catalog_items(previous_catalog)
+                           if not (str(item.get('faculty') or '') == faculty and course_key(item) == course)]
+            writer.put(query,{**previous_catalog,'items':other_items+selected})
+            writer.put({'action':'period'},current)
+            result = {'refreshed_at':datetime.now(timezone.utc).isoformat(),'faculty':faculty,'course':course,
+                      'groups':len(selected),'cached_groups':len(selected),'stale_groups':stale,
+                      'group_ids':[str(item['id']) for item in selected],'local_snapshot':True}
+            summary = self.snapshot.info()
+            summary['last_course_refresh'] = result
+            writer.summary(summary)
+        self.cache.replace({})
+        return result

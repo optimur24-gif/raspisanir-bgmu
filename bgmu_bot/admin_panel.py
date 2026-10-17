@@ -3,7 +3,7 @@
 from datetime import datetime
 import secrets
 
-from telegram import InlineKeyboardButton as Button, InlineKeyboardMarkup
+from telegram import InlineKeyboardButton as Button, InlineKeyboardMarkup, InputFile
 from telegram.error import TelegramError
 
 from .broadcasts import PREFIX
@@ -69,13 +69,16 @@ class AdminPanel:
         rows.append([('← Админ-панель','root','')])
         await self.show(update,context,'\n'.join(lines),rows)
 
+    def schedule_backup_name(self):
+        return 'schedule.sqlite3' if (self.profiles.backups.directory/'schedule.sqlite3').exists() else 'schedule.json.gz'
+
     async def backups(self, update, context):
         lines = ['💾 Последние резервные копии',
                  'Настройки всех пользователей и чатов — в одном SQLite-файле. '
-                 'Расписание — сжатая копия загруженных данных кэша, до 128 ответов сайта. '
+                 'Расписание — последняя полная ежедневная копия текущего семестра. '
                  'Предыдущий файл заменяется после успешной записи нового.']
         rows = []
-        for kind, filename, label in (('settings','settings.sqlite3','Настройки'),('schedule','schedule.json.gz','Расписание')):
+        for kind, filename, label in (('settings','settings.sqlite3','Настройки'),('schedule',self.schedule_backup_name(),'Расписание')):
             path = self.profiles.backups.directory/filename
             try:
                 info = path.stat()
@@ -90,12 +93,17 @@ class AdminPanel:
         await self.show(update,context,'\n'.join(lines),rows)
 
     async def download_backup(self, update, context, kind):
-        filename = {'settings':'settings.sqlite3','schedule':'schedule.json.gz'}.get(kind)
+        filename = {'settings':'settings.sqlite3','schedule':self.schedule_backup_name()}.get(kind)
         if filename is None:
             return
         try:
-            with (self.profiles.backups.directory/filename).open('rb') as saved:
-                await context.bot.send_document(chat_id=update.effective_user.id,document=saved,
+            path = self.profiles.backups.directory/filename
+            if path.stat().st_size > 49*1024*1024:
+                await update.effective_message.reply_text('Копия больше лимита отправки Telegram. Скачай её из папки .data/backups на BotHost: '+filename)
+                await self.backups(update,context)
+                return
+            with path.open('rb') as saved:
+                await context.bot.send_document(chat_id=update.effective_user.id,document=InputFile(saved,filename=filename,read_file_handle=False),
                     filename=filename,caption='Резервная копия: '+filename)
         except (OSError, TelegramError):
             await update.effective_message.reply_text('Не удалось отправить копию. Проверь наличие файла и повтори позже.')

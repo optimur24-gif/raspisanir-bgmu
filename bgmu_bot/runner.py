@@ -7,6 +7,7 @@ import signal
 
 from .bgmu import BGMUSource
 from .profiles import ProfileStore
+from .refresh import stop_background
 from .shared_schedule import SharedSchedule
 from .ui import create_application
 from .website import WebsiteClient
@@ -53,9 +54,9 @@ async def run_together(token):
             source = BGMUSource(website, cache_ttl=300)
             feed = SharedSchedule(source)
             source.schedule_consumers = [feed]
-            await feed.refresh_safely()
             profiles = ProfileStore.from_environment()
             application = create_application(token, source, profiles=profiles)
+            await feed.refresh_safely()
             tasks = [asyncio.create_task(public_polling(application)),
                      asyncio.create_task(restricted.run_restricted(feed, handle_signals=False)),
                      asyncio.create_task(refresh_feed(feed)), asyncio.create_task(stop.wait())]
@@ -64,6 +65,7 @@ async def run_together(token):
                 for task in finished:
                     task.result()
             finally:
+                await stop_background(source)
                 for task in tasks:
                     task.cancel()
                 await asyncio.gather(*tasks, return_exceptions=True)
