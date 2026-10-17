@@ -11,12 +11,15 @@ from telegram import InlineKeyboardButton as Button
 from telegram import InlineKeyboardMarkup, ReplyKeyboardMarkup
 from telegram.constants import ParseMode
 from telegram.ext import (
-    Application, CallbackQueryHandler, CommandHandler, MessageHandler, filters,
+    Application, CallbackQueryHandler, ChatMemberHandler, CommandHandler, MessageHandler, filters,
 )
 
 from .presentation import TIMEZONE, calendar_keyboard, parse_date, render_schedule, render_week, today
 from .profiles import ProfileStore
 from .refresh import morning_refresh, refresh_saved_groups
+from .commands import schedule_request
+from .group_chats import GroupUI, time_answer
+from .notifications import scheduled_notifications
 from .source import Choice, GroupUnavailable, Menu, ScheduleSource, SourceError
 
 
@@ -377,6 +380,25 @@ class BotUI:
                 self.state(context).update(screen="advanced", binding=False, matches=None)
                 await self.show_menu(update, context)
                 return
+            try:
+                request = schedule_request(text, today())
+            except ValueError as error:
+                await self.send(update, str(error))
+                return
+            if request is not None:
+                if await self.personal_selection(update, context):
+                    if request.kind == 'week':
+                        await self.show_week(update, context, request.day)
+                    elif request.kind == 'day':
+                        await self.show_schedule(update, context, request.day)
+                    else:
+                        try:
+                            text = await time_answer(self.source, self.state(context)['path'], request.kind, datetime.now(TIMEZONE))
+                        except SourceError:
+                            await self.failure(update, context, 'home')
+                            return
+                        await self.send(update, text, html=True)
+                return
             if text in (TODAY, TOMORROW, WEEK, DATE, "Сегодня", "Завтра", "Неделя"):
                 if await self.personal_selection(update, context):
                     day = today() + timedelta(days=1 if text in (TOMORROW, "Завтра") else 0)
@@ -433,6 +455,10 @@ def create_application(token: str, source: ScheduleSource, *, profiles=None, adm
             data=(source, profiles), name="bgmu-morning-refresh",
             job_kwargs={"misfire_grace_time": 3600, "coalesce": True},
         )
+        application.job_queue.run_repeating(
+            scheduled_notifications, interval=60, first=10, data=(source, profiles),
+            name='bgmu-group-notifications', job_kwargs={'max_instances': 1, 'coalesce': True},
+        )
     private = filters.ChatType.PRIVATE
     application.add_handler(CommandHandler(["start", "menu"], ui.start, filters=private))
     if personal_source:
@@ -449,7 +475,30 @@ def create_application(token: str, source: ScheduleSource, *, profiles=None, adm
             "Источник: bgmu-time.ru. Кэш в памяти — 5 минут; обновление в 07:00 по Уфе (UTC+5)."
         )
     application.add_handler(CommandHandler("help", help_command, filters=private))
-    application.add_handler(CallbackQueryHandler(ui.callback))
+    if personal_source:
+        groups = GroupUI(source, profiles)
+        group_filter = filters.ChatType.GROUPS
+        application.add_handler(ChatMemberHandler(groups.joined, ChatMemberHandler.MY_CHAT_MEMBER))
+        application.add_handler(MessageHandler(group_filter & filters.StatusUpdate.NEW_CHAT_MEMBERS, groups.joined))
+        application.add_handler(MessageHandler(group_filter & filters.StatusUpdate.MIGRATE, groups.migrate))
+        application.add_handler(CommandHandler(['group', 'setgroup'], groups.configure, filters=group_filter))
+        application.add_handler(CommandHandler(['start', 'help'], groups.help, filters=group_filter))
+        application.add_handler(CommandHandler(['notifications_on', 'notifications_off'], groups.notifications, filters=group_filter))
+        application.add_handler(MessageHandler(group_filter & filters.TEXT, groups.text))
+
+        async def callback(update, context):
+            chat = update.effective_chat
+            if chat and chat.type in ('group', 'supergroup'):
+                if (update.callback_query.data or '').startswith('g:'):
+                    await groups.callback(update, context)
+                else:
+                    await update.callback_query.answer('Личные кнопки работают в личке. Для чата используй /group.', show_alert=True)
+            else:
+                await ui.callback(update, context)
+
+        application.add_handler(CallbackQueryHandler(callback))
+    else:
+        application.add_handler(CallbackQueryHandler(ui.callback))
     application.add_handler(MessageHandler(private & filters.TEXT & ~filters.COMMAND, ui.text))
 
     async def on_error(update, context):

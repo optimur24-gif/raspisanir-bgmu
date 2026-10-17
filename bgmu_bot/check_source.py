@@ -33,6 +33,7 @@ async def verify_live(website):
     year, semester = str(period["period"]["year"]), str(period["period"]["semester"])
     scenarios = []
     personal_path = None
+    prefixes = await source.group_prefixes()
     for mode in (await source.menu(())).choices:
         years = await source.menu((mode.key,))
         if year not in {choice.key for choice in years.choices}:
@@ -56,6 +57,9 @@ async def verify_live(website):
         if subgroups is not None:
             path += (next(choice.key for choice in subgroups.choices if choice.key == "*"),)
         if mode.key == "group":
+            prefix_matches = await source.groups_with_prefix(source.group_prefix(entity.label))
+            if not any(match.path[5] == path[5] for match in prefix_matches):
+                raise SourceError("Выбор по обозначению группы потерял выбранную группу.")
             matches = await source.search_groups(entity.label)
             if not any(match.path[5] == path[5] for match in matches):
                 raise SourceError("Быстрый поиск потерял выбранную группу.")
@@ -93,7 +97,7 @@ async def verify_live(website):
         })
     refreshed = await source.refresh((personal_path,) if personal_path else ())
     return {"year": year, "semester": semester, "scenarios": scenarios,
-            "personal_group_lookup": personal_path is not None, "refresh": refreshed}
+            "personal_group_lookup": personal_path is not None, "group_prefixes": prefixes, "refresh": refreshed}
 
 
 async def live_check(report_path=None):

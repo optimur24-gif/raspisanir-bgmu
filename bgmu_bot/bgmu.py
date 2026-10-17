@@ -269,6 +269,20 @@ class BGMUSource:
         needle = normalize(query)
         return tuple(self._group_match(start, item) for item in items if needle in normalize(item["name"]))
 
+    @staticmethod
+    def group_prefix(name):
+        return re.split(r"\d", name, maxsplit=1)[0].strip() or "Без префикса"
+
+    async def group_prefixes(self):
+        start = await self.current_group_start()
+        items = await self._catalog(start.path)
+        return tuple(sorted({self.group_prefix(item["name"]) for item in items}, key=natural_key))
+
+    async def groups_with_prefix(self, prefix):
+        start = await self.current_group_start()
+        items = await self._catalog(start.path)
+        return tuple(self._group_match(start, item) for item in items if self.group_prefix(item["name"]) == prefix)
+
     async def resolve_group(self, path):
         start = await self.current_group_start()
         items = await self._catalog(start.path)

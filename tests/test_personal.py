@@ -221,7 +221,7 @@ async def test_daily_job_uses_confirmed_ufa_time_and_same_safe_refresh(profiles)
     async with WebsiteClient(transport=httpx.MockTransport(lambda r: httpx.Response(200, json=api_response(r)))) as website:
         source = BGMUSource(website)
         application = create_application('123:offline-test', source, profiles=profiles)
-        job, = application.job_queue.jobs()
+        job, = application.job_queue.get_jobs_by_name('bgmu-morning-refresh')
         assert job.name == 'bgmu-morning-refresh'
         assert str(job.job.trigger.timezone) == 'Asia/Yekaterinburg'
         fields = {field.name: str(field) for field in job.job.trigger.fields}
