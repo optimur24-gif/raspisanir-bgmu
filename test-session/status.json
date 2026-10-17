@@ -1,12 +1,14 @@
 {
-  "run_id": "39061608079",
-  "state": "finished",
-  "received_updates": 30,
-  "start_commands": 1,
+  "run_id": "39062773482",
+  "state": "running",
+  "received_updates": 0,
+  "start_commands": 0,
+  "handler_errors": 0,
+  "interface": "personal-group-dashboard",
+  "morning_refresh_jobs": 1,
   "bot_username": "efdfsdvsava_bot",
   "bot_url": "https://t.me/efdfsdvsava_bot",
   "telegram_authorization": "passed",
-  "started_at": "2026-10-17T19:15:42.557490+00:00",
-  "planned_end_at": "2026-10-17T19:25:42.557490+00:00",
-  "finished_at": "2026-10-17T19:25:47.476265+00:00"
+  "started_at": "2026-10-17T19:31:06.719146+00:00",
+  "planned_end_at": "2026-10-17T19:41:06.719146+00:00"
 }
