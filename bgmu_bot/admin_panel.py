@@ -14,6 +14,7 @@ ADMIN_PANEL = '🛠 Админ-панель'
 
 class AdminPanel:
     PAGE_SIZE = 8
+    USERS_PER_PAGE = 5
 
     def __init__(self, profiles, ui):
         self.profiles, self.ui = profiles, ui
@@ -52,7 +53,7 @@ class AdminPanel:
             f"Чатов: {stats['groups']} · получают объявления: {stats['subscribed_groups']}\n\n"
             'Здесь доступны только сведения о подключении бота. Журналов переписки нет.',
             [[('📣 Новая рассылка','audiences','')], [('👤 Пользователи','users','0')], [('👥 Подключённые чаты','chats','0')],
-             [('🔔 Новые пользователи и чаты','alerts','')],
+             [('🔔 Уведомления','alerts','')],
              [('💾 Резервные копии','backups','')],
              [('📬 История и статус рассылок','history','')], [('🧹 Очистить историю рассылок','clear_ask','')],
              [('🔄 Обновить данные','refresh',''),('🎯 Обновить курс','course','')]])
@@ -60,8 +61,8 @@ class AdminPanel:
     async def alerts(self, update, context):
         rows = []
         lines = ['🔔 Уведомления владельцу в личку',
-                 'О новых пользователях и впервые обнаруженных чатах. Повторный /start и смена прав не создают дубликаты.']
-        for kind, label in (('users','Пользователи'),('groups','Чаты')):
+                 'О новых пользователях, чатах и ошибках загрузки расписания. Повторный /start и смена прав не создают дубликаты.']
+        for kind, label in (('users','Пользователи'),('groups','Чаты'),('refresh_errors','Ошибки обновления')):
             enabled = self.profiles.metadata('owner_alerts_'+kind) is not False
             lines.append(label+': '+('включены' if enabled else 'выключены'))
             rows.append([(('🔕 Выключить: ' if enabled else '🔔 Включить: ')+label,
@@ -168,19 +169,27 @@ class AdminPanel:
 
     async def users(self, update, context, page=0):
         contacts = self.profiles.registered_contacts()
-        page = min(max(0, page), max(0, (len(contacts)-1)//self.PAGE_SIZE))
+        page = min(max(0, page), max(0, (len(contacts)-1)//self.USERS_PER_PAGE))
         lines = [f'👤 Пользователи бота: {len(contacts)}',
                  'Только люди, обращавшиеся к боту в личке. Участники чатов не перечисляются.']
         access_rows = []
-        for contact in contacts[page*self.PAGE_SIZE:(page+1)*self.PAGE_SIZE]:
+        for contact in contacts[page*self.USERS_PER_PAGE:(page+1)*self.USERS_PER_PAGE]:
             blocked = self.profiles.access_blocked(contact['user_id'])
             access_rows.append([(('🔓 ' if blocked else '🔒 ')+(contact['name'] or contact['username'] or str(contact['user_id']))[:45], 'access',str(contact['user_id']))])
+            saved = self.profiles.get(contact['user_id'])
             username = '@'+contact['username'] if contact['username'] else 'тег не установлен'
             lines += ['', (contact['name'] or 'Имя неизвестно')[:100],
                       f"{username} · ID {contact['user_id']}",
                       'Доступ к боту: '+('отключён' if blocked else 'разрешён'),
                       'Доступен: '+('да' if contact['active'] else 'нет'),
                       'Объявления: '+('включены' if contact['announcements'] else 'отключены')]
+            if saved:
+                lines += ['Учебная группа: '+saved.labels[5][:40],
+                          saved.labels[3][:70]+' · '+saved.labels[4][:25]]
+                if len(saved.labels) > 6:
+                    lines.append('Подгруппа: '+saved.labels[6][:40])
+            else:
+                lines.append('Учебная группа: не выбрана')
             if contact['username']:
                 lines.append('https://t.me/'+contact['username'])
         if not contacts:
@@ -188,7 +197,7 @@ class AdminPanel:
         pages = []
         if page:
             pages.append(('‹','users',str(page-1)))
-        if (page+1)*self.PAGE_SIZE < len(contacts):
+        if (page+1)*self.USERS_PER_PAGE < len(contacts):
             pages.append(('›','users',str(page+1)))
         rows = access_rows + ([pages] if pages else [])
         rows.append([('← Админ-панель','root','')])
@@ -352,8 +361,8 @@ class AdminPanel:
             await self.download_backup(update,context,value)
         elif action == 'alerts':
             await self.alerts(update,context)
-        elif action == 'alert_set' and value in ('users_on','users_off','groups_on','groups_off'):
-            kind, setting = value.split('_')
+        elif action == 'alert_set' and value in ('users_on','users_off','groups_on','groups_off','refresh_errors_on','refresh_errors_off'):
+            kind, setting = value.rsplit('_',1)
             self.profiles.set_metadata('owner_alerts_'+kind, setting == 'on')
             await self.alerts(update,context)
         elif action == 'audiences':

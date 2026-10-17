@@ -4,6 +4,7 @@ from datetime import datetime, timezone, time, timedelta
 from .presentation import TIMEZONE
 import logging
 import asyncio
+from .owner_alerts import report_refresh_failure
 
 
 async def refresh_saved_groups(source, profiles):
@@ -44,6 +45,7 @@ async def morning_refresh(context):
             await refresh_saved_groups(source,profiles)
     except Exception as error:
         logging.getLogger(__name__).warning("Утреннее обновление не выполнено (%s)",type(error).__name__)
+        await report_refresh_failure(source,profiles,getattr(context,'bot',None),error)
 
 
 async def refresh_course(source, profiles, faculty, course, *, period):

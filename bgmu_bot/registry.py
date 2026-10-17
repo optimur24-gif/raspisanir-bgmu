@@ -2,7 +2,7 @@
 
 import re
 
-from telegram.error import TelegramError
+from .owner_alerts import notify_owner, deliver_refresh_alert
 
 
 class RegistryObserver:
@@ -12,21 +12,8 @@ class RegistryObserver:
         self.admin_username = admin_username
 
     async def notify(self, context, kind, text):
-        if self.profiles.metadata('owner_alerts_'+kind) is False:
-            return
-        owner = self.profiles.metadata('owner_alert_recipient')
-        if not owner:
-            return
-        expected = self.admin_username or owner['username']
-        try:
-            # Revalidate the current account before sending private admin metadata.
-            chat = await context.bot.get_chat(owner['id'])
-            if chat.type != 'private' or (chat.username or '').casefold() != expected.casefold():
-                return
-            await context.bot.send_message(owner['id'], text, parse_mode=None)
-        except TelegramError:
-            # A blocked/unreachable owner must not break schedule handlers.
-            return
+        return await notify_owner(self.profiles,getattr(context,'bot',None),text,
+                                  kind=kind,expected_username=self.admin_username)
 
     @staticmethod
     def group_notice(chat, actor=None):
@@ -67,6 +54,7 @@ class RegistryObserver:
 
             if self.is_admin(update):
                 self.profiles.set_metadata('owner_alert_recipient', {'id': chat.id, 'username': user.username.casefold()})
+                await deliver_refresh_alert(self.profiles,getattr(context,'bot',None),expected_username=self.admin_username)
             elif new_user:
                 tag = '@'+user.username if getattr(user,'username',None) else 'Тег не установлен'
                 await self.notify(context, 'users', '\n'.join([

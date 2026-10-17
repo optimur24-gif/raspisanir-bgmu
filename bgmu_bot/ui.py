@@ -611,6 +611,7 @@ def create_application(token: str, source: ScheduleSource, *, profiles=None, adm
     application = builder.build()
     panel = AdminPanel(profiles,ui) if personal_source else None
     if personal_source:
+        source.owner_username = ui.admin_username
         if getattr(source,'snapshot',None) is None:
             source.use_snapshot(profiles.path.parent/'schedule.sqlite3')
         source.snapshot.after_publish = profiles.backups.save_snapshot
