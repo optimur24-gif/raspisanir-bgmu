@@ -53,6 +53,7 @@ class AdminPanel:
             'Здесь доступны только сведения о подключении бота. Журналов переписки нет.',
             [[('📣 Новая рассылка','audiences','')], [('👤 Пользователи','users','0')], [('👥 Подключённые чаты','chats','0')],
              [('🔔 Новые пользователи и чаты','alerts','')],
+             [('💾 Резервные копии','backups','')],
              [('📬 История и статус рассылок','history','')], [('🧹 Очистить историю рассылок','clear_ask','')],
              [('🔄 Обновить данные','refresh',''),('🎯 Обновить курс','course','')]])
 
@@ -67,6 +68,38 @@ class AdminPanel:
                           'alert_set',kind+('_off' if enabled else '_on'))])
         rows.append([('← Админ-панель','root','')])
         await self.show(update,context,'\n'.join(lines),rows)
+
+    async def backups(self, update, context):
+        lines = ['💾 Последние резервные копии',
+                 'Настройки всех пользователей и чатов — в одном SQLite-файле. '
+                 'Расписание — сжатая копия загруженных данных кэша, до 128 ответов сайта. '
+                 'Предыдущий файл заменяется после успешной записи нового.']
+        rows = []
+        for kind, filename, label in (('settings','settings.sqlite3','Настройки'),('schedule','schedule.json.gz','Расписание')):
+            path = self.profiles.backups.directory/filename
+            try:
+                info = path.stat()
+                when = datetime.fromtimestamp(info.st_mtime,TIMEZONE).strftime('%d.%m.%Y %H:%M')
+                lines.append(f'{label}: {when}, Уфа · {info.st_size/1024:.1f} КБ')
+                rows.append([('📥 Скачать: '+label,'backup_get',kind)])
+            except FileNotFoundError:
+                lines.append(label+': копия ещё не создана.')
+        lines.append('Копия расписания появляется после загрузки расписания с сайта. '
+                     'Файлы находятся на том же диске хостинга: скачай их для защиты от потери диска.')
+        rows.append([('← Админ-панель','root','')])
+        await self.show(update,context,'\n'.join(lines),rows)
+
+    async def download_backup(self, update, context, kind):
+        filename = {'settings':'settings.sqlite3','schedule':'schedule.json.gz'}.get(kind)
+        if filename is None:
+            return
+        try:
+            with (self.profiles.backups.directory/filename).open('rb') as saved:
+                await context.bot.send_document(chat_id=update.effective_user.id,document=saved,
+                    filename=filename,caption='Резервная копия: '+filename)
+        except (OSError, TelegramError):
+            await update.effective_message.reply_text('Не удалось отправить копию. Проверь наличие файла и повтори позже.')
+        await self.backups(update,context)
 
     async def audiences(self, update, context):
         self.state(context).pop('draft', None)
@@ -263,6 +296,10 @@ class AdminPanel:
         elif action == 'course':
             state.clear()
             await self.ui.admin_course(update,context,begin=True)
+        elif action == 'backups':
+            await self.backups(update,context)
+        elif action == 'backup_get' and value in ('settings','schedule'):
+            await self.download_backup(update,context,value)
         elif action == 'alerts':
             await self.alerts(update,context)
         elif action == 'alert_set' and value in ('users_on','users_off','groups_on','groups_off'):

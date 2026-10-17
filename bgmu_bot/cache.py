@@ -24,6 +24,7 @@ class ResponseCache:
         self.entries = OrderedDict()
         self.locks = weakref.WeakValueDictionary()
         self.generation = 0
+        self.on_change = None
 
     async def get(self, key, loader):
         if self.ttl <= 0:
@@ -52,6 +53,7 @@ class ResponseCache:
                 self.entries.move_to_end(key)
                 while len(self.entries) > self.max_entries:
                     self.entries.popitem(last=False)
+                self._notify()
             return value
 
     def replace(self, values):
@@ -60,6 +62,7 @@ class ResponseCache:
             replacement.popitem(last=False)
         self.entries = replacement
         self.generation += 1
+        self._notify()
 
     def merge(self, values):
         # Preserve expiration times of unrelated schedules; publish in one step.
@@ -71,3 +74,8 @@ class ResponseCache:
             replacement.popitem(last=False)
         self.entries = replacement
         self.generation += 1
+        self._notify()
+
+    def _notify(self):
+        if self.on_change is not None:
+            self.on_change(self.entries)

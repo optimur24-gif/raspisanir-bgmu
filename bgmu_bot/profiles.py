@@ -8,6 +8,8 @@ import os
 from pathlib import Path
 import sqlite3
 
+from .backups import BackupStore
+
 
 @dataclass(frozen=True)
 class SavedGroup:
@@ -19,6 +21,7 @@ class ProfileStore:
     def __init__(self, path):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        self.backups = BackupStore(self.path.parent / 'backups')
         existed = self.path.exists()
         with self.connection() as db:
             db.executescript("""
@@ -79,13 +82,18 @@ class ProfileStore:
         return cls(Path(os.environ.get("BGMU_DATA_DIR", ".data")) / "preferences.sqlite3")
 
     @contextmanager
-    def connection(self):
+    def connection(self, *, backup=False):
         db = sqlite3.connect(self.path, timeout=5)
         try:
             with db:
                 yield db
         finally:
             db.close()
+        if backup:
+            self.backup_settings()
+
+    def backup_settings(self):
+        return self.backups.save_settings(self.path)
 
     def get(self, user_id):
         with self.connection() as db:
@@ -97,14 +105,14 @@ class ProfileStore:
     def save(self, user_id, path, labels):
         if len(path) not in (6, 7) or path[0] != "group" or len(labels) != len(path):
             raise ValueError("Only a complete personal group selection can be saved")
-        with self.connection() as db:
+        with self.connection(backup=True) as db:
             db.execute("""
                 INSERT INTO profiles(user_id, path, labels, updated_at) VALUES (?, ?, ?, ?)
                 ON CONFLICT(user_id) DO UPDATE SET path=excluded.path, labels=excluded.labels, updated_at=excluded.updated_at
             """, (user_id, json.dumps(path, ensure_ascii=False), json.dumps(labels, ensure_ascii=False), datetime.now(timezone.utc).isoformat()))
 
     def delete(self, user_id):
-        with self.connection() as db:
+        with self.connection(backup=True) as db:
             db.execute("DELETE FROM profiles WHERE user_id = ?", (user_id,))
 
     def paths(self):
@@ -114,7 +122,7 @@ class ProfileStore:
         return tuple(tuple(json.loads(row[0])) for row in rows)
 
     def register_chat(self, chat_id):
-        with self.connection() as db:
+        with self.connection(backup=True) as db:
             db.execute("INSERT INTO chats(chat_id) VALUES (?) ON CONFLICT(chat_id) DO UPDATE SET active=1", (chat_id,))
 
     def chat_group(self, chat_id):
@@ -125,13 +133,13 @@ class ProfileStore:
     def save_chat(self, chat_id, path, labels):
         if len(path) not in (6, 7) or path[0] != "group" or len(path) != len(labels):
             raise ValueError("Only a complete group can be assigned to a chat")
-        with self.connection() as db:
+        with self.connection(backup=True) as db:
             db.execute("""INSERT INTO chats(chat_id,path,labels) VALUES (?,?,?)
                 ON CONFLICT(chat_id) DO UPDATE SET path=excluded.path,labels=excluded.labels,active=1""",
                 (chat_id, json.dumps(path, ensure_ascii=False), json.dumps(labels, ensure_ascii=False)))
 
     def chat_notifications(self, chat_id, enabled):
-        with self.connection() as db:
+        with self.connection(backup=True) as db:
             db.execute("UPDATE chats SET notifications=? WHERE chat_id=?", (int(enabled), chat_id))
 
     def deactivate_chat(self, chat_id):
@@ -161,7 +169,7 @@ class ProfileStore:
             db.execute("DELETE FROM chat_deliveries WHERE target < date(?, '-60 days')", (target,))
 
     def migrate_chat(self, old_id, new_id):
-        with self.connection() as db:
+        with self.connection(backup=True) as db:
             db.execute("INSERT OR IGNORE INTO access_blocks SELECT ?,actor_id,updated_at FROM access_blocks WHERE target_id=?", (new_id,old_id))
             db.execute("""INSERT INTO chats(chat_id,path,labels,active,notifications,title,username,bot_status,added_by,added_by_username,added_at,updated_at,announcements)
                 SELECT ?,path,labels,active,notifications,title,username,bot_status,added_by,added_by_username,added_at,updated_at,announcements FROM chats WHERE chat_id=?
@@ -171,7 +179,7 @@ class ProfileStore:
                 FROM chat_deliveries WHERE chat_id=?""", (new_id, old_id))
 
     def set_metadata(self, key, value):
-        with self.connection() as db:
+        with self.connection(backup=True) as db:
             db.execute("INSERT INTO metadata VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, json.dumps(value, ensure_ascii=False)))
 
     def metadata(self, key):
@@ -189,6 +197,8 @@ class ProfileStore:
                 last_seen=excluded.last_seen,active=1,referral=COALESCE(contacts.referral,excluded.referral)''',
                 (user_id, username, name, now, now, referral))
 
+        if new:
+            self.backup_settings()
         return new
 
     def access_target(self, target_id):
@@ -204,7 +214,7 @@ class ProfileStore:
             return db.execute('SELECT 1 FROM access_blocks WHERE target_id=?', (target_id,)).fetchone() is not None
 
     def set_access_blocked(self, target_id, blocked, actor_id):
-        with self.connection() as db:
+        with self.connection(backup=True) as db:
             if blocked:
                 db.execute("INSERT INTO access_blocks VALUES (?,?,?) ON CONFLICT(target_id) DO UPDATE SET actor_id=excluded.actor_id,updated_at=excluded.updated_at",
                            (target_id,actor_id,datetime.now(timezone.utc).isoformat()))
@@ -212,11 +222,11 @@ class ProfileStore:
                 db.execute('DELETE FROM access_blocks WHERE target_id=?', (target_id,))
 
     def contact_subscription(self, user_id, enabled):
-        with self.connection() as db:
+        with self.connection(backup=True) as db:
             db.execute('UPDATE contacts SET announcements=? WHERE user_id=?', (int(enabled), user_id))
 
     def contact_active(self, user_id, enabled):
-        with self.connection() as db:
+        with self.connection(backup=True) as db:
             db.execute('UPDATE contacts SET active=? WHERE user_id=?', (int(enabled), user_id))
 
     def observe_chat(self, chat_id, *, title=None, username=None, status=None, added_by=None, added_by_username=None):
@@ -234,6 +244,8 @@ class ProfileStore:
                 active=CASE WHEN excluded.bot_status IS NULL OR excluded.bot_status = 'unavailable' THEN chats.active ELSE excluded.active END''',
                 (chat_id, title, username, status, added_by, added_by_username, now, now, int(status not in ('left','kicked'))))
 
+        if new or status is not None:
+            self.backup_settings()
         return new
 
     def registered_contacts(self):
@@ -248,7 +260,7 @@ class ProfileStore:
 
     def group_announcements(self, chat_id, enabled):
         self.register_chat(chat_id)
-        with self.connection() as db:
+        with self.connection(backup=True) as db:
             db.execute('UPDATE chats SET announcements=? WHERE chat_id=?', (int(enabled), chat_id))
 
     def announcement_targets(self, audience, selected=None):

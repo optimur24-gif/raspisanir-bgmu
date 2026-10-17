@@ -587,6 +587,11 @@ def create_application(token: str, source: ScheduleSource, *, profiles=None, adm
     application = builder.build()
     panel = AdminPanel(profiles,ui) if personal_source else None
     if personal_source:
+        source.cache.on_change = profiles.backups.save_schedule
+        if source.cache.entries:
+            profiles.backups.save_schedule(source.cache.entries)
+        if not (profiles.backups.directory/'settings.sqlite3').exists():
+            profiles.backup_settings()
         profiles.recover_broadcasts()
         application.add_handler(TypeHandler(Update,AccessGuard(profiles,ui.is_admin).handle),group=-11)
         application.add_handler(TypeHandler(Update,TrafficGuard(ui.is_admin).handle),group=-9)

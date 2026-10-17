@@ -65,7 +65,12 @@ class BGMUSource:
         self.refresh_lock = asyncio.Lock()
 
     async def _api(self, **params):
-        return await self.cache.get(self._cache_key(params), lambda: self._request_api(**params))
+        async def load():
+            data = await self._request_api(**params)
+            if params.get('action') == 'schedule':
+                self._validate_schedule(data)
+            return data
+        return await self.cache.get(self._cache_key(params), load)
 
     @staticmethod
     def _cache_key(params):
