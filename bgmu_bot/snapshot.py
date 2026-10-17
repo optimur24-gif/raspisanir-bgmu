@@ -25,6 +25,7 @@ class DailySnapshot:
         self.request_lock = asyncio.Lock()
         self.last_error = False
         self.after_publish = None
+        self.on_progress = None
 
     @property
     def available(self):
@@ -67,8 +68,13 @@ class DailySnapshot:
         except (sqlite3.Error,ValueError):
             return {}
 
+    def progress(self, phase, detail, **fields):
+        if self.on_progress:
+            self.on_progress(phase,detail,**fields)
+
     @contextmanager
     def stage(self, *, merge=False):
+        self.progress('prepare','Готовлю временную базу; предыдущая копия остаётся доступной')
         self.path.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
         fd, name = tempfile.mkstemp(prefix='.daily-snapshot-',dir=self.path.parent)
         os.close(fd)
@@ -85,15 +91,21 @@ class DailySnapshot:
             db.executescript('CREATE TABLE IF NOT EXISTS responses(key TEXT PRIMARY KEY,payload BLOB NOT NULL); CREATE TABLE IF NOT EXISTS metadata(key TEXT PRIMARY KEY,value TEXT NOT NULL);')
             writer = SnapshotWriter(db)
             yield writer
+            self.progress('save','Сохраняю скачанные данные в локальную базу')
             db.commit()
+            self.progress('check','Проверяю целостность новой базы расписания')
             if db.execute('PRAGMA quick_check').fetchone()[0] != 'ok':
                 raise SourceError('Проверка локальной копии не пройдена.')
             db.close()
             with open(name,'rb') as saved:
                 os.fsync(saved.fileno())
+            self.progress('publish','Заменяю предыдущую базу проверенной новой копией')
             os.replace(name,self.path)
             if self.after_publish:
-                self.after_publish(self.path)
+                self.progress('backup','Создаю резервную копию расписания',backup_state='running')
+                result = self.after_publish(self.path)
+                ok = result is not False
+                self.progress('backup','Резервная копия создана' if ok else 'Не удалось создать резервную копию',backup_state='completed' if ok else 'failed')
         finally:
             db.close()
             Path(name).unlink(missing_ok=True)

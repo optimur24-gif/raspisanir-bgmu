@@ -71,8 +71,26 @@ class BGMUSource:
     def use_snapshot(self, path):
         from .snapshot import DailySnapshot
         self.snapshot = DailySnapshot(path)
+        self.snapshot.on_progress = self._progress
         self.cache.replace({})
         self.cache.ttl = 86400
+
+    def _begin_progress(self, operation):
+        self.refresh_progress = {'operation':operation,'completed':0,'state':'running',
+                                 'started_at':datetime.now(timezone.utc).isoformat(),'history':[]}
+        self._progress('prepare', 'Начинаю обновление локального расписания')
+
+    def _progress(self, phase, detail, **fields):
+        now = datetime.now(timezone.utc).isoformat()
+        self.refresh_progress.update(phase=phase,detail=detail,updated_at=now,**fields)
+        history = self.refresh_progress.setdefault('history',[])
+        history.append({'at':now,'detail':detail})
+        del history[:-8]
+
+    def _finish_progress(self, state):
+        self.refresh_progress.update(state=state,finished_at=datetime.now(timezone.utc).isoformat())
+        if state == 'completed':
+            self._progress('done','Обновление расписания завершено')
 
     async def _api(self, **params):
         async def load():
@@ -89,10 +107,18 @@ class BGMUSource:
         return tuple(sorted((key, str(value)) for key, value in params.items()))
 
     async def _request_api(self, **params):
-        if self.snapshot is not None:
-            self.refresh_progress.update(phase='download',request={key:str(value) for key,value in params.items() if key in ('action','type','id','year','semester')})
+        tracked = self.snapshot is not None
+        if tracked:
+            request = {key:str(value) for key,value in params.items() if key in ('action','type','id','year','semester')}
+            kind = TYPES.get(params.get('type'),'')
+            target = {'period':'учебный период','catalog':'каталог: '+kind,
+                      'schedule':'расписание: '+self.refresh_progress.get('entity_name',str(params.get('id','')))}.get(params.get('action'),'данные сайта')
+            self._progress('waiting','Ожидаю безопасный интервал перед запросом: '+target,request=request)
             await self.snapshot.wait_for_request()
+            self._progress('download','Обращаюсь к bgmu-time.ru, скачиваю '+target)
         response = await self.website.get("/api.php", params=params)
+        if tracked:
+            self._progress('validate','Ответ сайта получен, проверяю '+target)
         try:
             data = response.json()
         except ValueError:
@@ -356,7 +382,14 @@ class BGMUSource:
     async def refresh_course(self, faculty, course, *, period):
         async with self.refresh_lock:
             if self.snapshot is not None:
-                return await self._refresh_course_snapshot(faculty,course,period=period)
+                try:
+                    return await self._refresh_course_snapshot(faculty,course,period=period)
+                except asyncio.CancelledError:
+                    self._finish_progress('cancelled')
+                    raise
+                except Exception:
+                    self._finish_progress('failed')
+                    raise
             current = await self._request_api(action='period')
             detected = current.get('period') or {}
             year, semester = str(detected.get('year', '')), str(detected.get('semester', ''))
@@ -399,7 +432,7 @@ class BGMUSource:
         await self.website.aclose()
 
     async def _refresh_snapshot(self):
-        self.refresh_progress = {'operation':'full','completed':0,'state':'running'}
+        self._begin_progress('full')
         logger = logging.getLogger(__name__)
         logger.info('Начата полная загрузка ежедневной локальной копии расписания')
         try:
@@ -409,7 +442,7 @@ class BGMUSource:
             self._validate_path(('group',year,semester))
             counts = {}
             stale = 0
-            self.refresh_progress['phase'] = 'save'
+            self._progress('save','Сохраняю локальную базу расписания')
             with self.snapshot.stage() as writer:
                 writer.put({'action':'period'},current)
                 for kind in TYPES:
@@ -420,35 +453,42 @@ class BGMUSource:
                         raise SourceError('Сайт вернул пустой каталог групп. Предыдущая копия сохранена.')
                     writer.put(query,catalog)
                     counts[kind] = len(items)
+                    self.refresh_progress.update(section=TYPES[kind],section_total=len(items),section_completed=0,entity_name='')
                     logger.info('Каталог %s: %s расписаний для загрузки',kind,len(items))
                     for index,item in enumerate(items,start=1):
+                        self.refresh_progress['entity_name'] = item['name'][:120]
                         params = dict(action='schedule',type=kind,id=str(item['id']),year=year,semester=semester)
                         payload = await self._request_api(**params)
                         self._validate_schedule(payload)
                         stale += int(bool((payload.get('meta') or {}).get('stale')))
                         writer.put(params,payload)
                         self.refresh_progress['completed'] += 1
+                        self.refresh_progress['section_completed'] = index
+                        self._progress('stored','Загружено и записано: '+item['name'][:120])
                         if index % 50 == 0 or index == len(items):
                             logger.info('Загрузка %s: %s/%s',kind,index,len(items))
-                self.refresh_progress['phase'] = 'save'
+                self._progress('save','Сохраняю локальную базу расписания')
                 result = {'refreshed_at':datetime.now(timezone.utc).isoformat(), 'catalogs':3,
                           'groups':counts['group'],'teachers':counts['teacher'],'rooms':counts['room'],
                           'stale_schedules':stale,'on_demand_groups':0,'local_snapshot':True,
                           'year':year,'semester':semester}
                 writer.summary({**result,'full_refresh_at':result['refreshed_at']})
-            self.refresh_progress['state'] = 'completed'
+            self._finish_progress('completed')
             logger.info('Ежедневная копия успешно обновлена: групп %s, преподавателей %s, аудиторий %s',counts['group'],counts['teacher'],counts['room'])
             self.snapshot.last_error = False
             self.cache.replace({})
             return result
+        except asyncio.CancelledError:
+            self._finish_progress('cancelled')
+            raise
         except Exception:
-            self.refresh_progress['state'] = 'failed'
+            self._finish_progress('failed')
             self.snapshot.last_error = True
             self.cache.replace({})
             raise
 
     async def _refresh_course_snapshot(self, faculty, course, *, period):
-        self.refresh_progress = {'operation':'course','completed':0,'state':'running'}
+        self._begin_progress('course')
         if not self.snapshot.available:
             raise SourceError('Сначала нужно полное обновление локальной копии.')
         detected = self.snapshot.get({'action':'period'})['period']
@@ -463,16 +503,20 @@ class BGMUSource:
         selected = [item for item in self._catalog_items(catalog) if str(item.get('faculty') or '') == faculty and course_key(item) == course]
         if not selected:
             raise SourceError('На выбранном факультете и курсе групп нет.')
+        self.refresh_progress.update(section='Группы выбранного курса',section_total=len(selected),section_completed=0)
         stale = 0
-        self.refresh_progress['phase'] = 'save'
+        self._progress('save','Сохраняю локальную базу расписания')
         with self.snapshot.stage(merge=True) as writer:
-            for item in selected:
+            for index,item in enumerate(selected,start=1):
+                self.refresh_progress['entity_name'] = item['name'][:120]
                 params = dict(action='schedule',type='group',id=str(item['id']),year=year,semester=semester)
                 payload = await self._request_api(**params)
                 self._validate_schedule(payload)
                 stale += int(bool((payload.get('meta') or {}).get('stale')))
                 writer.put(params,payload)
-            self.refresh_progress['phase'] = 'save'
+                self.refresh_progress.update(completed=index,section_completed=index)
+                self._progress('stored','Загружено и записано: '+item['name'][:120])
+            self._progress('save','Сохраняю локальную базу расписания')
             previous_catalog = self.snapshot.get(query)
             other_items = [item for item in self._catalog_items(previous_catalog)
                            if not (str(item.get('faculty') or '') == faculty and course_key(item) == course)]
@@ -485,5 +529,5 @@ class BGMUSource:
             summary['last_course_refresh'] = result
             writer.summary(summary)
         self.cache.replace({})
-        self.refresh_progress['state'] = 'completed'
+        self._finish_progress('completed')
         return result

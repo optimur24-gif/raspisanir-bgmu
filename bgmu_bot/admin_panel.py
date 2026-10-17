@@ -122,10 +122,31 @@ class AdminPanel:
             lines.append('Последняя полная копия: '+when+', Уфа')
         else:
             lines.append('Полная локальная копия ещё не создана.')
-        states = {'running':'идёт загрузка','completed':'завершено','failed':'ошибка'}
+        states = {'running':'идёт загрузка','completed':'завершено','failed':'ошибка','cancelled':'остановлено'}
         lines.append('Состояние процесса: '+states.get(progress.get('state'),'нет активной загрузки'))
         if progress.get('completed') is not None:
             lines.append('Загружено расписаний в этой попытке: '+str(progress['completed']))
+        if progress.get('detail'):
+            lines.append('Сейчас / последний этап: '+progress['detail'])
+        total = progress.get('section_total')
+        if total is not None:
+            done = progress.get('section_completed',0)
+            lines.append(f"Раздел: {progress.get('section','')} — {done}/{total}")
+        started = progress.get('started_at')
+        if started:
+            start = datetime.fromisoformat(started)
+            finish = datetime.fromisoformat(progress['finished_at']) if progress.get('finished_at') else datetime.now(start.tzinfo)
+            seconds = max(0,int((finish-start).total_seconds()))
+            lines.append(f"Прошло: {seconds//3600:02}:{seconds//60%60:02}:{seconds%60:02}")
+        backup = {'running':'создаётся','completed':'создан','failed':'ошибка создания'}
+        if progress.get('backup_state'):
+            lines.append('Бэкап: '+backup.get(progress['backup_state'],progress['backup_state']))
+        history = progress.get('history',[])
+        if history:
+            lines.append('Последние шаги:')
+            for entry in history[-6:]:
+                when = datetime.fromisoformat(entry['at']).astimezone(TIMEZONE).strftime('%H:%M:%S')
+                lines.append(when+' · '+entry['detail'])
         request = progress.get('request',{})
         if request:
             lines.append('Текущий/последний запрос: '+', '.join(f'{key}={value}' for key,value in request.items()))

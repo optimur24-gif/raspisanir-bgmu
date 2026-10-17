@@ -16,8 +16,8 @@ def error_description(error, source=None):
     else:
         detail = type(error).__name__
     progress = getattr(source,'refresh_progress',{}) or {}
-    if progress.get('phase') == 'save':
-        stage = 'Сохранение локальной базы'
+    if progress.get('phase') in ('prepare','save','check','publish','backup'):
+        stage = progress.get('detail') or 'Сохранение локальной базы'
     else:
         request = progress.get('request',{})
         action = request.get('action')
