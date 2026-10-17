@@ -1,15 +1,18 @@
 {
-  "run_id": "39062773482",
-  "state": "finished",
-  "received_updates": 54,
-  "start_commands": 3,
+  "run_id": "39063651099",
+  "state": "running",
+  "received_updates": 0,
+  "start_commands": 0,
   "handler_errors": 0,
-  "interface": "personal-group-dashboard",
+  "group_updates": 0,
+  "interface": "group-chat-schedules",
   "morning_refresh_jobs": 1,
+  "group_notification_jobs": 1,
+  "can_join_groups": true,
+  "privacy_disabled": false,
   "bot_username": "efdfsdvsava_bot",
   "bot_url": "https://t.me/efdfsdvsava_bot",
   "telegram_authorization": "passed",
-  "started_at": "2026-10-17T19:31:06.719146+00:00",
-  "planned_end_at": "2026-10-17T19:41:06.719146+00:00",
-  "finished_at": "2026-10-17T19:41:08.548314+00:00"
+  "started_at": "2026-10-17T19:43:28.965901+00:00",
+  "planned_end_at": "2026-10-17T19:53:28.965901+00:00"
 }
