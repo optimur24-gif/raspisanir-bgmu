@@ -1,7 +1,7 @@
 import json
 from urllib.error import HTTPError, URLError
 
-from tools.inspect_bgmu_source import PublicResponse, TARGET, allowed_url, inspect, make_fetcher
+from tools.inspect_bgmu_source import PublicResponse, TARGET, allowed_url, inspect, make_fetcher, probe_api
 
 
 def test_collects_html_and_recursive_javascript_without_requesting_other_hosts(tmp_path):
@@ -77,3 +77,30 @@ def test_invalid_proxy_error_does_not_include_credentials():
         assert 'private-user' not in str(error)
     else:
         raise AssertionError('Invalid proxy configuration was accepted')
+
+
+def test_api_probe_uses_the_live_period_and_keeps_a_bounded_sample():
+    from urllib.parse import parse_qs, urlsplit
+
+    requested = []
+
+    def fetch(url, timeout):
+        query = {key: values[0] for key, values in parse_qs(urlsplit(url).query).items()}
+        requested.append(query)
+        if query['action'] == 'period':
+            payload = {'success': True, 'period': {'year': 27, 'semester': 2}}
+        elif query['action'] == 'catalog':
+            payload = {'success': True, 'items': [{'id': 5, 'name': 'Л-101', 'faculty': 'Лечебный', 'course': 1}]}
+        else:
+            payload = {'success': True, 'entity': {'name': 'Л-101'}, 'events': [
+                {'kind': 'Лекция', 'date': '2027-03-01', 'details': [{'subgroup': '1'}]},
+                {'kind': 'Лекция', 'date': '2027-03-02', 'details': []},
+            ]}
+        return PublicResponse(url, json.dumps(payload).encode(), 'application/json')
+
+    result = probe_api(fetch)
+    assert result['status'] == 'api_responses_received'
+    assert len(result['schedules']['group']['samples']) == 1
+    assert result['schedules']['group']['event_count'] == 2
+    assert all(query.get('year') == '27' and query.get('semester') == '2' for query in requested[1:])
+    assert {query['type'] for query in requested[1:]} == {'group', 'teacher', 'room'}

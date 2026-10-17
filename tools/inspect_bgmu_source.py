@@ -17,7 +17,7 @@ from pathlib import Path
 import re
 import time
 from urllib.error import HTTPError, URLError
-from urllib.parse import urljoin, urlsplit, urlunsplit
+from urllib.parse import urlencode, urljoin, urlsplit, urlunsplit
 from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
 
@@ -228,6 +228,61 @@ def inspect(output, fetcher, *, proxy_configured=False):
     return report
 
 
+def probe_api(fetcher):
+    """Read the API calls observed in the website's app.js, keeping small samples."""
+    result = {"status": "unavailable", "catalogs": {}, "schedules": {}, "errors": []}
+
+    def api(**params):
+        response = fetcher(TARGET + "api.php?" + urlencode(params), 30)
+        payload = json.loads(response.content)
+        if not isinstance(payload, dict) or payload.get("success") is not True:
+            raise ValueError("api_unsuccessful")
+        return payload
+
+    try:
+        period = api(action="period")
+        result["period"] = period
+        year, semester = period["period"]["year"], period["period"]["semester"]
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        result["errors"].append({"action": "period", **safe_error(error)})
+        return result
+    for entity_type in ("group", "teacher", "room"):
+        try:
+            catalog = api(action="catalog", type=entity_type, year=year, semester=semester)
+            items = catalog["items"]
+            if not isinstance(items, list):
+                raise ValueError("invalid_catalog")
+            result["catalogs"][entity_type] = {
+                "count": len(items), "samples": items[:3], "meta": catalog.get("meta"),
+                "faculties": sorted({item.get("faculty", "") for item in items if item.get("faculty")}),
+                "courses": sorted({str(item["course"]) for item in items if item.get("course") is not None}),
+            }
+            if not items:
+                continue
+            chosen = next((item for item in items if item.get("name") == "Л-101"), items[0])
+            schedule = api(action="schedule", type=entity_type, id=chosen["id"], year=year, semester=semester)
+            events = schedule["events"]
+            samples = []
+            kinds = set()
+            for event in events:
+                kind = event.get("kind", "")
+                if kind not in kinds and len(samples) < 8:
+                    kinds.add(kind)
+                    samples.append(event)
+            result["schedules"][entity_type] = {
+                "entity": schedule.get("entity"), "event_count": len(events),
+                "samples": samples, "meta": schedule.get("meta"),
+                "sourceUrl": schedule.get("sourceUrl"), "undatedRecords": schedule.get("undatedRecords"),
+                "dates": sorted({event.get("date", "") for event in events})[:5],
+                "subgroups": sorted({str(detail["subgroup"]) for event in events for detail in event.get("details", []) if detail.get("subgroup")}),
+            }
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            result["errors"].append({"entity_type": entity_type, **safe_error(error)})
+    if result["schedules"]:
+        result["status"] = "api_responses_received"
+    return result
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", default="source-inspection")
@@ -239,6 +294,9 @@ def main():
         def fetcher(url, timeout):
             raise ValueError("invalid_proxy_configuration")
     report = inspect(args.output, fetcher, proxy_configured=bool(proxy_url))
+    if report["status"] == "homepage_fetched":
+        report["api_probe"] = probe_api(fetcher)
+        (Path(args.output) / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(f"Inspection: {report['status']}; source files: {len(report['files'])}; errors: {len(report['errors'])}.")
     return 0 if report["status"] == "homepage_fetched" else 1
 
