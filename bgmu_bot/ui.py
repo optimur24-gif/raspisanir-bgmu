@@ -203,7 +203,7 @@ class BotUI:
         if 'linked_group_refreshed' in result:
             linked = '\nП-114 передано исходному боту.' if result['linked_group_refreshed'] else '\n⚠️ П-114 для исходного бота обновить не удалось; предыдущая копия сохранена.'
         if result.get('local_snapshot'):
-            await self.send(update,f"✅ Ежедневная локальная копия обновлена · {when}, Уфа\nГрупп: {result['groups']} · аудиторий: {result['rooms']}\nПользователи получают данные только из этой копии.{linked}\nОбновление автоматически в 07:00 по Уфе.",self.home_keyboard(update))
+            await self.send(update,f"✅ Ежедневная локальная копия обновлена · {when}, Уфа\nГрупп: {result['groups']}\nПользователи получают данные только из этой копии.{linked}\nОбновление автоматически в 07:00 по Уфе.",self.home_keyboard(update))
             return
         await self.send(update, f"✅ Данные обновлены · {when}, Уфа\nКаталогов: {result['catalogs']} · групп: {result['groups']}\nСтарый кэш заменён. Личные группы сохранены.{linked}\n\nУтреннее обновление: 07:00 по Уфе.", self.home_keyboard(update, selected=self.profiles.get(update.effective_user.id) is not None))
 
@@ -662,7 +662,7 @@ def create_application(token: str, source: ScheduleSource, *, profiles=None, adm
             "🎓 Напиши номер группы или нажми «Выбрать группу» — я сохраню твой выбор.\n"
             "📅 Сегодня · 🌤 Завтра · 🗓 Неделя — расписание в одном нажатии.\n"
             "«Моя группа» — изменить или отвязать группу; /group — новый выбор.\n"
-            "«Другие расписания» — группы и аудитории.\n"
+            "«Другие расписания» — выбор другой группы.\n"
             "Можно отправить дату ДД.ММ.ГГГГ или открыть календарь.\n"
             "/start и /menu — главная; /refresh — обновление для администратора.\n"
             "Источник: ежедневная локальная копия bgmu-time.ru. Обновление в 07:00 по Уфе (UTC+5)."

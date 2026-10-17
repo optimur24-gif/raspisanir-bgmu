@@ -15,7 +15,7 @@ from .source import Choice, GroupMatch, GroupUnavailable, Menu, Schedule, Sectio
 from .website import WebsiteClient
 
 
-TYPES = {"group": "Группы", "room": "Аудитории"}
+TYPES = {"group": "Группы"}
 SEMESTERS = {"1": "Осенний семестр", "2": "Весенний семестр"}
 
 
@@ -68,7 +68,7 @@ class BGMUSource:
         self.snapshot = None
         self.daily_refresh_lock = asyncio.Lock()
         self.refresh_progress = {}
-        self.refresh_timeout = 600
+        self.refresh_timeout = 300
 
     def use_snapshot(self, path):
         from .snapshot import DailySnapshot
@@ -160,7 +160,7 @@ class BGMUSource:
             raise SourceError("Сначала выберите раздел расписания.")
         index = 5 if path[0] == "group" else 3
         if len(path) <= index or not path[index].isdigit() or int(path[index]) <= 0:
-            raise SourceError("Выберите группу, преподавателя или аудиторию заново.")
+            raise SourceError("Выберите группу заново.")
         return path[index]
 
     async def _schedule_data(self, path):
@@ -440,11 +440,11 @@ class BGMUSource:
         except TimeoutError:
             self._finish_progress('failed')
             self.snapshot.last_error = True
-            raise SourceError('Обновление остановлено: превышен лимит 10 минут. '
+            raise SourceError('Обновление остановлено: превышен лимит 5 минут. '
                               'Сайт не успел отдать все данные; предыдущая копия сохранена.') from None
 
     async def _download_schedules(self, items, kind, year, semester):
-        """Keep at most three requests in flight; the shared limiter spaces starts."""
+        """Keep at most four requests in flight; the shared limiter spaces starts."""
         iterator = iter(items)
         pending = {}
         def start_next():
@@ -457,7 +457,7 @@ class BGMUSource:
             self.refresh_progress['active_downloads'] = [row[0]['name'][:120] for row in pending.values()]
             return True
         try:
-            for _ in range(3):
+            for _ in range(4):
                 if not start_next():break
             while pending:
                 done,_ = await asyncio.wait(pending,return_when=asyncio.FIRST_COMPLETED)
@@ -516,12 +516,12 @@ class BGMUSource:
                                 logger.info('Загрузка %s: %s/%s',kind,index,len(items))
                 self._progress('save','Сохраняю локальную базу расписания')
                 result = {'refreshed_at':datetime.now(timezone.utc).isoformat(), 'catalogs':len(TYPES),
-                          'groups':counts['group'],'teachers':0,'rooms':counts['room'],
+                          'groups':counts['group'],'teachers':0,'rooms':0,
                           'stale_schedules':stale,'on_demand_groups':0,'local_snapshot':True,
                           'year':year,'semester':semester}
                 writer.summary({**result,'full_refresh_at':result['refreshed_at']})
             self._finish_progress('completed')
-            logger.info('Ежедневная копия успешно обновлена: групп %s, аудиторий %s',counts['group'],counts['room'])
+            logger.info('Ежедневная копия успешно обновлена: групп %s',counts['group'])
             self.snapshot.last_error = False
             self.cache.replace({})
             return result

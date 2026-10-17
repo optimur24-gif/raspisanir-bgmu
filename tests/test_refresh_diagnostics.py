@@ -95,7 +95,7 @@ async def test_progress_tracks_inflight_entity_counts_and_publish_backup(tmp_pat
         finally:
             release.set();await task
         progress=source.refresh_progress
-        assert progress['state']=='completed' and progress['completed']==4
+        assert progress['state']=='completed' and progress['completed']==3
         assert progress['backup_state']=='failed' and source.snapshot.available
         assert len(progress['history'])<=8
         details=' '.join(row['detail'] for row in progress['history'])

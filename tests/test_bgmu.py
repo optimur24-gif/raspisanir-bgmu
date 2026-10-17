@@ -46,7 +46,7 @@ async def test_real_api_contract_navigation_and_no_schedule_cache():
 
     async with WebsiteClient(transport=httpx.MockTransport(respond)) as website:
         source = BGMUSource(website)
-        assert {choice.key for choice in (await source.menu(())).choices} == {"group", "room"}
+        assert {choice.key for choice in (await source.menu(())).choices} == {"group"}
         assert (await source.menu(("group",))).choices[0].label == "2026/2027"
         assert (await source.menu(("group", "26"))).choices[0].key == "1"
         path = ("group", "26", "1")
@@ -80,19 +80,6 @@ async def test_subgroup_keeps_common_lessons_and_filters_other_subgroups():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("kind", ["room"])
-async def test_room_paths_use_the_observed_api(kind):
-    async with WebsiteClient(transport=httpx.MockTransport(lambda request: httpx.Response(200, json=api_response(request)))) as website:
-        source = BGMUSource(website)
-        choices = (await source.menu((kind, "26", "1"))).choices
-        if kind == "room":
-            assert "Корпус 1" in choices[0].label
-        assert await source.menu((kind, "26", "1", "10")) is None
-        result = await source.schedule((kind, "26", "1", "10"), date(2026, 10, 21))
-        assert result.sections
-
-
-@pytest.mark.asyncio
 @pytest.mark.parametrize("payload", [
     {"success": False, "message": "upstream failed"},
     {"success": True, "entity": {"name": "Л-101"}},
@@ -114,7 +101,7 @@ async def test_empty_day_and_upstream_staleness_remain_distinct():
         return httpx.Response(200, json=data)
 
     async with WebsiteClient(transport=httpx.MockTransport(respond)) as website:
-        result = await BGMUSource(website).schedule(("room", "26", "1", "10"), date(2026, 10, 21))
+        result = await BGMUSource(website).schedule(("group", "26", "1", "Лечебный факультет", "1", "1"), date(2026, 10, 21))
     assert not result.sections
     assert any("сохранённую копию" in value for value in result.notices)
     assert any("без точной даты" in value for value in result.notices)
@@ -136,7 +123,7 @@ async def test_live_check_exercises_all_sections_and_reports_counts_without_less
 
     async with WebsiteClient(transport=httpx.MockTransport(lambda request: httpx.Response(200, json=api_response(request)))) as website:
         result = await verify_live(website)
-    assert {scenario["mode"] for scenario in result["scenarios"]} == {"group", "room"}
+    assert {scenario["mode"] for scenario in result["scenarios"]} == {"group"}
     assert all(scenario["day_lessons"] == 1 for scenario in result["scenarios"])
     assert "Биология" not in json.dumps(result, ensure_ascii=False)
     assert result["scenarios"][0]["subgroups_checked"] == ["А"]
