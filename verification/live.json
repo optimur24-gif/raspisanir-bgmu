@@ -1,6 +1,6 @@
 {
   "status": "passed",
-  "checked_at": "2026-10-17T19:30:19.620651+00:00",
+  "checked_at": "2026-10-17T19:31:38.141093+00:00",
   "proxy_configured": false,
   "year": "26",
   "semester": "1",
@@ -41,5 +41,12 @@
       "week_days": 7,
       "week_messages": 1
     }
-  ]
+  ],
+  "personal_group_lookup": true,
+  "refresh": {
+    "refreshed_at": "2026-10-17T19:31:40.864829+00:00",
+    "catalogs": 3,
+    "groups": 1,
+    "on_demand_groups": 0
+  }
 }
