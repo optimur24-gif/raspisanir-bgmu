@@ -6,6 +6,7 @@ requires-python = ">=3.12,<3.13"
 dependencies = [
     "httpx[socks]>=0.28,<0.29",
     "python-telegram-bot[job-queue]>=22,<23",
+    "aiogram>=3.26,<4",
 ]
 
 [dependency-groups]
