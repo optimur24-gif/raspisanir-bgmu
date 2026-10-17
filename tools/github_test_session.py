@@ -104,7 +104,7 @@ async def serve(token, run_id, seconds):
     handler.setFormatter(RedactingFormatter([token, os.environ.get("BGMU_PROXY_URL", "")]))
     logging.basicConfig(level=logging.WARNING, handlers=[handler], force=True)
     report = {"run_id": run_id, "state": "initializing", "received_updates": 0, "start_commands": 0,
-              "handler_errors": 0, "interface": "personal-group-dashboard"}
+              "handler_errors": 0, "group_updates": 0, "interface": "group-chat-schedules"}
     stop = asyncio.Event()
     initialized = False
     async with WebsiteClient.from_environment() as website:
@@ -115,9 +115,12 @@ async def serve(token, run_id, seconds):
             report["handler_errors"] += 1
 
         app.add_error_handler(count_error)
-        report["morning_refresh_jobs"] = len(app.job_queue.jobs())
+        report["morning_refresh_jobs"] = len(app.job_queue.get_jobs_by_name('bgmu-morning-refresh'))
+        report["group_notification_jobs"] = len(app.job_queue.get_jobs_by_name('bgmu-group-notifications'))
 
         async def count_update(update, context):
+            if update.effective_chat and update.effective_chat.type in ('group', 'supergroup'):
+                report["group_updates"] += 1
             if update.effective_message:
                 report["received_updates"] += 1
                 if (update.effective_message.text or "").split(" ", 1)[0].split("@", 1)[0] == "/start":
@@ -133,6 +136,8 @@ async def serve(token, run_id, seconds):
             await app.initialize()
             initialized = True
             me = await app.bot.get_me()
+            report['can_join_groups'] = me.can_join_groups
+            report['privacy_disabled'] = bool(me.can_read_all_group_messages)
             report["bot_username"] = me.username
             report["bot_url"] = "https://t.me/" + me.username if me.username else None
             report["telegram_authorization"] = "passed"
