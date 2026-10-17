@@ -1,8 +1,8 @@
 {
   "run_id": "39061608079",
   "state": "running",
-  "received_updates": 0,
-  "start_commands": 0,
+  "received_updates": 5,
+  "start_commands": 1,
   "bot_username": "efdfsdvsava_bot",
   "bot_url": "https://t.me/efdfsdvsava_bot",
   "telegram_authorization": "passed",
