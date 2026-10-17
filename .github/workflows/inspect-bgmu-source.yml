@@ -1,0 +1,45 @@
+name: Inspect public BGMU website
+
+on:
+  push:
+    branches: [codex/bgmu-source-inspection]
+    paths:
+      - .github/workflows/inspect-bgmu-source.yml
+      - tools/inspect_bgmu_source.py
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bgmu-source-inspection
+  cancel-in-progress: true
+
+jobs:
+  inspect:
+    if: github.actor != 'github-actions[bot]' && github.ref == 'refs/heads/codex/bgmu-source-inspection'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout diagnostic branch
+        uses: actions/checkout@v4
+
+      - name: Fetch public HTML and JavaScript
+        env:
+          BGMU_PROXY_URL: ${{ secrets.BGMU_PROXY_URL }}
+        run: python3 tools/inspect_bgmu_source.py --output source-inspection
+
+      - name: Return diagnostic report through Git
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f source-inspection/report.json
+          git add -- source-inspection
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git -c user.name='github-actions[bot]' \
+              -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+              commit -m 'chore: record public BGMU source inspection'
+          git push origin HEAD:codex/bgmu-source-inspection
