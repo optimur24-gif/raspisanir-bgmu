@@ -12,6 +12,8 @@ async def refresh_saved_groups(source, profiles):
             "at": datetime.now(timezone.utc).isoformat(), "type": type(error).__name__,
         })
         raise
+    for consumer in getattr(source, 'schedule_consumers', ()):
+        result['linked_group_refreshed'] = await consumer.refresh_safely(force=True)
     profiles.set_metadata("last_refresh", result)
     profiles.set_metadata("last_refresh_error", None)
     return result

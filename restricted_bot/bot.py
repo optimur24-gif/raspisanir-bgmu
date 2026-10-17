@@ -92,6 +92,10 @@ admin_router = Router()
 group_router = Router()
 scheduler: AsyncIOScheduler | None = None
 START_TIME = datetime.now(TIMEZONE)
+SCHEDULE_FEED = None
+
+from bgmu_bot.shared_schedule import SharedSchedule, SharedScheduleMiddleware
+
 
 DAYS_ORDER = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 DAYS_RU = {"mon": "Понедельник", "tue": "Вторник", "wed": "Среда", "thu": "Четверг",
@@ -114,19 +118,21 @@ DEFAULT_SETTINGS = {
 
 
 # ============================ БАЗА ДАННЫХ ============================
-def get_db():
+def get_db(*, live=True):
     conn = sqlite3.connect(DB_PATH, timeout=15)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL;")
     conn.execute("PRAGMA synchronous=FULL;")
     conn.execute("PRAGMA foreign_keys=ON;")
     conn.execute("PRAGMA busy_timeout=15000;")
+    if live and SCHEDULE_FEED is not None:
+        SCHEDULE_FEED.attach(conn)
     return conn
 
 
 @contextmanager
-def db_session():
-    conn = get_db()
+def db_session(*, live=True):
+    conn = get_db(live=live)
     try:
         yield conn
         conn.commit()
@@ -148,7 +154,7 @@ def feature_message_allowed(message: Message, public: bool = True) -> bool:
 
 
 def init_db():
-    conn = get_db()
+    conn = get_db(live=False)
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS admins (user_id INTEGER PRIMARY KEY);
         CREATE TABLE IF NOT EXISTS schedule (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, time TEXT, subject TEXT, room TEXT);
@@ -174,7 +180,7 @@ def init_db():
         conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", (k, v))
     conn.commit()
     conn.close()
-    with db_session() as conn:
+    with db_session(live=False) as conn:
         reminder_cols = {r[1] for r in conn.execute("PRAGMA table_info(reminders)")}
         for name, definition in {"attempts": "INTEGER NOT NULL DEFAULT 0", "last_error": "TEXT"}.items():
             if name not in reminder_cols:
@@ -787,6 +793,8 @@ async def _send_with_retry(chat_id: int, text: str, **kwargs):
 
 
 async def safe_send(chat_id, text, **kwargs) -> Message | None:
+    if SCHEDULE_FEED is not None and SCHEDULE_FEED.warning:
+        text += "\n\n⚠️ " + esc(SCHEDULE_FEED.warning)
     try:
         chunks = split_html_text(text)
         last = None
@@ -802,6 +810,8 @@ async def safe_send(chat_id, text, **kwargs) -> Message | None:
 
 
 async def safe_edit(call: CallbackQuery, text: str, markup=None):
+    if SCHEDULE_FEED is not None and SCHEDULE_FEED.warning:
+        text += "\n\n⚠️ " + esc(SCHEDULE_FEED.warning)
     if not call.message:
         return None
     if len(text.encode("utf-16-le")) // 2 > 4000:
@@ -984,11 +994,15 @@ def get_week_menu(monday: date):
     b.row(days[0], days[1], days[2])
     b.row(days[3], days[4], days[5])
     
-    b.row(Btn("📥 Загрузить неделю текстом", f"parse_week_{monday.isoformat()}"))
+    if SCHEDULE_FEED is None:
+        b.row(Btn("📥 Загрузить неделю текстом", f"parse_week_{monday.isoformat()}"))
+    else:
+        b.row(Btn("🌐 П-114 · данные общего бота", "ignore"))
     b.row(Btn("🧰 Инструменты недели", f"sch_tools_{monday.isoformat()}"))
     sunday = monday + timedelta(days=6)
     b.row(Btn(f"Вс {fmt_short(sunday)}", f"date_{sunday.isoformat()}"))
-    b.row(Btn("🗑 Очистить эту неделю", f"clear_week_{monday.isoformat()}"))
+    if SCHEDULE_FEED is None:
+        b.row(Btn("🗑 Очистить эту неделю", f"clear_week_{monday.isoformat()}"))
     b.row(Btn("🔙 В главное меню", "main_menu"))
     return b.as_markup()
 
@@ -1022,13 +1036,15 @@ def render_date(d: date, page: int = 0):
             text += f"Всего пар: {len(classes)} · страница {page + 1}/{pages}\n\n"
         for c in selected:
             text += fmt_class(c) + "\n"
-            b.row(Btn(f"🗑 {c['time']} {c['subject'][:20]}", f"cls_del_{c['id']}"),
+            if SCHEDULE_FEED is None:
+                b.row(Btn(f"🗑 {c['time']} {c['subject'][:20]}", f"cls_del_{c['id']}"),
                   Btn("✏️", f"sch_edit_{c['id']}"))
     else:
-        text += "Пусто. Добавьте пары!\n"
+        text += "На сайте нет занятий на эту дату.\n" if SCHEDULE_FEED is not None else "Пусто. Добавьте пары!\n"
     add_page_buttons(b, page, pages, f"date_page_{d.isoformat()}_")
-    b.row(Btn("➕ Добавить пару", f"add_class_{d.isoformat()}"))
-    b.row(Btn("📋 Копировать день", f"sch_copy_day_{d.isoformat()}"))
+    if SCHEDULE_FEED is None:
+        b.row(Btn("➕ Добавить пару", f"add_class_{d.isoformat()}"))
+        b.row(Btn("📋 Копировать день", f"sch_copy_day_{d.isoformat()}"))
     b.row(Btn("🔙 К неделе", f"week_{get_monday(d).isoformat()}"))
     return text, b.as_markup()
 
@@ -1163,7 +1179,9 @@ def configure_dispatcher():
     if common_router.parent_router is not None:
         return
     dp.message.outer_middleware(ScopeMiddleware())
+    dp.message.outer_middleware(SharedScheduleMiddleware(lambda: SCHEDULE_FEED))
     dp.callback_query.outer_middleware(ScopeMiddleware())
+    dp.callback_query.outer_middleware(SharedScheduleMiddleware(lambda: SCHEDULE_FEED))
     dp.callback_query.outer_middleware(CallbackAcknowledgementMiddleware())
     dp.message.outer_middleware(GroupMemberTrackingMiddleware())
     for router in (common_router, schedule_extra_router, study_router, tools_router, admin_router, group_router, fallback_router):
@@ -2483,7 +2501,8 @@ def schedule_ics_bytes(rows: list[dict], timezone_name: str | None = None,
 
 def get_schedule_tools_menu(monday: date):
     builder = InlineKeyboardBuilder()
-    builder.row(Btn("📋 Копировать неделю", f"sch_copy_week_{monday.isoformat()}"))
+    if SCHEDULE_FEED is None:
+        builder.row(Btn("📋 Копировать неделю", f"sch_copy_week_{monday.isoformat()}"))
     builder.row(Btn("🔎 Найти предмет / аудиторию", f"sch_search_{monday.isoformat()}"))
     builder.row(Btn("📊 Нагрузка недели", f"sch_load_{monday.isoformat()}"))
     builder.row(Btn("📄 CSV", f"sch_csv_{monday.isoformat()}"), Btn("📆 Календарь ICS", f"sch_ics_{monday.isoformat()}"))
@@ -4034,6 +4053,8 @@ def build_digest(d: date, greeting: str) -> str | None:
 
 
 async def send_morning_digest():
+    if not await refresh_live_schedule():
+        return
     today = get_now().date()
     key = f"morning:{today.isoformat()}"
     text = build_digest(today, "☀️ Доброе утро!")
@@ -4052,6 +4073,8 @@ async def send_morning_digest():
 
 
 async def send_evening_preview():
+    if not await refresh_live_schedule():
+        return
     if get_setting("evening_enabled") != "1":
         return
     target = get_now().date() + timedelta(days=1)
@@ -4074,6 +4097,8 @@ async def send_hw_reminder():
 
 
 async def check_class_reminders():
+    if not await refresh_live_schedule():
+        return
     try:
         mins = int(get_setting("class_reminder_minutes") or 0)
     except ValueError:
@@ -4113,8 +4138,15 @@ def apply_schedule_settings():
     reschedule_daily("hw", send_hw_reminder, get_setting("hw_reminder_time"))
 
 
-async def main():
-    global scheduler
+async def refresh_live_schedule():
+    if SCHEDULE_FEED is None:
+        return True
+    await SCHEDULE_FEED.refresh_safely()
+    return SCHEDULE_FEED.ready
+
+
+async def run_restricted(feed, *, handle_signals=True):
+    global scheduler, SCHEDULE_FEED
     me = await bot.get_me()
     if me.id != EXPECTED_BOT_ID:
         await bot.session.close()
@@ -4122,6 +4154,7 @@ async def main():
     if os.path.exists(DB_PATH):
         backup_database("before_startup_migration")
     init_db()
+    SCHEDULE_FEED = feed
     backup_database("startup")
     scheduler = AsyncIOScheduler(timezone=TIMEZONE, job_defaults={"coalesce": True, "max_instances": 1,
                                                                 "misfire_grace_time": 120})
@@ -4146,12 +4179,22 @@ async def main():
         except Exception as exc:
             logger.warning("Не удалось обновить меню команд: %s", type(exc).__name__)
         await bot.delete_webhook(drop_pending_updates=os.getenv("DROP_PENDING_UPDATES", "0") == "1")
-        await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types(), close_bot_session=False)
+        await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types(), close_bot_session=False, handle_signals=handle_signals)
     finally:
         if scheduler.running:
             scheduler.shutdown(wait=False)
         await bot.session.close()
         backup_database("shutdown")
+
+
+async def main():
+    # Compatibility entrypoint also uses the website instead of a manual timetable.
+    from bgmu_bot.bgmu import BGMUSource
+    from bgmu_bot.website import WebsiteClient
+    async with WebsiteClient.from_environment() as website:
+        feed = SharedSchedule(BGMUSource(website, cache_ttl=300))
+        await feed.refresh_safely()
+        await run_restricted(feed)
 
 
 if __name__ == "__main__":

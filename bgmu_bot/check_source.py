@@ -26,7 +26,7 @@ async def check() -> int:
     return 0
 
 
-async def verify_live(website):
+async def verify_live(website, *, include_linked=False):
     """Exercise the adapter against real data without storing lessons."""
     source = BGMUSource(website, cache_ttl=300)
     period = await source._api(action="period")
@@ -96,8 +96,20 @@ async def verify_live(website):
             "week_days": len(week), "week_messages": len(week_messages),
         })
     refreshed = await source.refresh((personal_path,) if personal_path else ())
-    return {"year": year, "semester": semester, "scenarios": scenarios,
-            "personal_group_lookup": personal_path is not None, "group_prefixes": prefixes, "refresh": refreshed}
+    result = {"year": year, "semester": semester, "scenarios": scenarios,
+              "personal_group_lookup": personal_path is not None, "group_prefixes": prefixes, "refresh": refreshed}
+    if include_linked:
+        from .shared_schedule import SharedSchedule
+        import sqlite3
+        feed = SharedSchedule(source)
+        await feed.refresh()
+        with sqlite3.connect(':memory:') as db:
+            feed.attach(db)
+            count = db.execute('SELECT COUNT(*) FROM schedule').fetchone()[0]
+        if count != len(feed.rows):
+            raise SourceError('Передача расписания П-114 в исходный бот потеряла занятия.')
+        result['linked_schedule'] = {'group': feed.group, 'semester_events': count, 'memory_only': True}
+    return result
 
 
 async def live_check(report_path=None):
@@ -105,7 +117,7 @@ async def live_check(report_path=None):
     try:
         async with WebsiteClient.from_environment() as website:
             report["proxy_configured"] = website.uses_proxy
-            report.update(await verify_live(website))
+            report.update(await verify_live(website, include_linked=True))
         report["status"] = "passed"
     except (SourceError, ValueError, KeyError, IndexError, StopIteration) as error:
         report["error_type"] = type(error).__name__

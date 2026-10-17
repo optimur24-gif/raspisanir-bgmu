@@ -165,7 +165,10 @@ class BotUI:
             await self.send(update, "⚠️ Обновление не удалось. Предыдущие данные и привязки групп сохранены.", self.home_keyboard(update))
             return
         when = datetime.fromisoformat(result["refreshed_at"]).astimezone(TIMEZONE).strftime("%d.%m %H:%M")
-        await self.send(update, f"✅ Данные обновлены · {when}, Уфа\nКаталогов: {result['catalogs']} · групп: {result['groups']}\nСтарый кэш заменён. Личные группы сохранены.\n\nУтреннее обновление: 07:00 по Уфе.", self.home_keyboard(update, selected=self.profiles.get(update.effective_user.id) is not None))
+        linked = ''
+        if 'linked_group_refreshed' in result:
+            linked = '\nП-114 передано исходному боту.' if result['linked_group_refreshed'] else '\n⚠️ П-114 для исходного бота обновить не удалось; предыдущая копия сохранена.'
+        await self.send(update, f"✅ Данные обновлены · {when}, Уфа\nКаталогов: {result['catalogs']} · групп: {result['groups']}\nСтарый кэш заменён. Личные группы сохранены.{linked}\n\nУтреннее обновление: 07:00 по Уфе.", self.home_keyboard(update, selected=self.profiles.get(update.effective_user.id) is not None))
 
     async def show_menu(self, update, context, *, page=0, query=""):
         state = self.state(context)

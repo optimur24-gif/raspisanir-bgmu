@@ -1,4 +1,5 @@
 import logging
+import asyncio
 import os
 import sys
 from urllib.parse import unquote, urlsplit
@@ -36,6 +37,10 @@ def main():
     handler.setFormatter(RedactingFormatter(sensitive))
     logging.basicConfig(level=logging.INFO, handlers=[handler], force=True)
     try:
+        if os.environ.get('RESTRICTED_BOT_TOKEN', '').strip():
+            from .runner import run_together
+            asyncio.run(run_together(token))
+            return 0
         website = WebsiteClient.from_environment()
         application = create_application(token, BGMUSource(website))
         application.run_polling(bootstrap_retries=0, drop_pending_updates=False)

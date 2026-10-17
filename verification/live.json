@@ -1,6 +1,6 @@
 {
   "status": "passed",
-  "checked_at": "2026-10-17T19:40:23.379561+00:00",
+  "checked_at": "2026-10-17T19:58:26.066419+00:00",
   "proxy_configured": false,
   "year": "26",
   "semester": "1",
@@ -72,9 +72,14 @@
     "Э-"
   ],
   "refresh": {
-    "refreshed_at": "2026-10-17T19:40:31.694172+00:00",
+    "refreshed_at": "2026-10-17T19:58:29.051320+00:00",
     "catalogs": 3,
     "groups": 1,
     "on_demand_groups": 0
+  },
+  "linked_schedule": {
+    "group": "П-114",
+    "semester_events": 277,
+    "memory_only": true
   }
 }
