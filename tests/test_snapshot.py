@@ -236,7 +236,7 @@ async def test_parallel_download_is_bounded_and_timeout_keeps_previous_copy(tmp_
         assert peak[0]==4 and active[0]==0
         previous=source.snapshot.path.read_bytes()
         blocking[0]=True;source.refresh_timeout=0.03
-        with pytest.raises(SourceError,match='5 минут'):
+        with pytest.raises(SourceError,match='15 минут'):
             await source.refresh()
         assert active[0]==0
         assert source.refresh_progress['state']=='failed'

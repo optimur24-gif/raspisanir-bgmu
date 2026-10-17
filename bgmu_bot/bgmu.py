@@ -68,7 +68,7 @@ class BGMUSource:
         self.snapshot = None
         self.daily_refresh_lock = asyncio.Lock()
         self.refresh_progress = {}
-        self.refresh_timeout = 300
+        self.refresh_timeout = 900
 
     def use_snapshot(self, path):
         from .snapshot import DailySnapshot
@@ -440,7 +440,7 @@ class BGMUSource:
         except TimeoutError:
             self._finish_progress('failed')
             self.snapshot.last_error = True
-            raise SourceError('Обновление остановлено: превышен лимит 5 минут. '
+            raise SourceError('Обновление остановлено: превышен лимит 15 минут. '
                               'Сайт не успел отдать все данные; предыдущая копия сохранена.') from None
 
     async def _download_schedules(self, items, kind, year, semester):
