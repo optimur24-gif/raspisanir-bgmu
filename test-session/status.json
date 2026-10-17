@@ -1,9 +1,18 @@
 {
   "run_id": "39064977675",
-  "state": "initializing",
-  "received_updates": 0,
+  "state": "running",
+  "received_updates": 3,
   "public_handler_errors": 0,
-  "restricted_updates": 0,
+  "restricted_updates": 1,
   "interface": "shared-p114",
-  "requested_duration_seconds": 2400
+  "requested_duration_seconds": 2400,
+  "linked_group": "П-114",
+  "linked_semester_events": 277,
+  "bot_url": "https://t.me/efdfsdvsava_bot",
+  "restricted_bot_url": "https://t.me/raspiisanieee_bot",
+  "privacy_disabled": true,
+  "both_bots_polling": true,
+  "shared_source": true,
+  "started_at": "2026-10-17T20:02:38.604776+00:00",
+  "planned_end_at": "2026-10-17T20:42:38.604776+00:00"
 }
