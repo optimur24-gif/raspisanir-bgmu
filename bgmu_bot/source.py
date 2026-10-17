@@ -9,10 +9,20 @@ class SourceError(Exception):
     """A safe boundary for upstream connection or website format errors."""
 
 
+class GroupUnavailable(SourceError):
+    """A saved group is no longer present in the current academic period."""
+
+
 @dataclass(frozen=True)
 class Choice:
     key: str
     label: str
+
+
+@dataclass(frozen=True)
+class GroupMatch:
+    path: tuple[str, ...]
+    labels: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -42,5 +52,5 @@ class ScheduleSource(Protocol):
         ...
 
     async def schedule(self, path: tuple[str, ...], day: date) -> Schedule:
-        """Fetch a schedule directly from the website, without a local cache."""
+        """Read website data; implementations may use a short in-memory cache."""
         ...

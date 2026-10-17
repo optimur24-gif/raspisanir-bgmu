@@ -5,7 +5,7 @@ description = "Telegram bot for live BGMU schedules without schedule storage"
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "httpx[socks]>=0.28,<0.29",
-    "python-telegram-bot>=22,<23",
+    "python-telegram-bot[job-queue]>=22,<23",
 ]
 
 [dependency-groups]

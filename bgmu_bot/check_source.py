@@ -8,7 +8,7 @@ from pathlib import Path
 import sys
 
 from .bgmu import BGMUSource
-from .presentation import render_schedule, today
+from .presentation import render_schedule, render_week, today
 from .source import SourceError
 from .website import WebsiteClient
 
@@ -61,6 +61,12 @@ async def verify_live(website):
         if available_dates and not schedule.sections:
             raise SourceError("День с занятиями источника отобразился пустым.")
         messages = render_schedule(schedule)
+        week = await source.week(path, day)
+        week_messages = render_week(week)
+        if len(week) != 7 or not any(item.day == day and item.sections == schedule.sections for item in week):
+            raise SourceError("Недельное расписание потеряло выбранный день.")
+        if any(len(message.encode("utf-16-le")) // 2 > 4096 for message in week_messages):
+            raise SourceError("Недельный ответ превышает ограничение Telegram.")
         if not messages or any(len(message.encode("utf-16-le")) // 2 > 4096 for message in messages):
             raise SourceError("Ответ не соответствует ограничениям Telegram.")
         checked_subgroups = []
@@ -74,6 +80,7 @@ async def verify_live(website):
             "mode": mode.key, "entity": entity.label, "date": day.isoformat(),
             "semester_events": len(data["events"]), "day_lessons": len(schedule.sections),
             "telegram_messages": len(messages), "subgroups_checked": checked_subgroups,
+            "week_days": len(week), "week_messages": len(week_messages),
         })
     return {"year": year, "semester": semester, "scenarios": scenarios}
 
