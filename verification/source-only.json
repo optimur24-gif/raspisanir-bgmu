@@ -1,6 +1,6 @@
 {
   "status": "passed",
-  "checked_at": "2026-10-17T21:23:09.524635+00:00",
+  "checked_at": "2026-10-17T21:25:58.034815+00:00",
   "proxy_configured": false,
   "year": "26",
   "semester": "1",
@@ -72,7 +72,7 @@
     "Э-"
   ],
   "refresh": {
-    "refreshed_at": "2026-10-17T21:22:57.921507+00:00",
+    "refreshed_at": "2026-10-17T21:25:51.715591+00:00",
     "catalogs": 3,
     "groups": 1,
     "on_demand_groups": 0
@@ -83,14 +83,14 @@
     "memory_only": true
   },
   "course_refresh": {
-    "refreshed_at": "2026-10-17T21:23:04.661781+00:00",
+    "refreshed_at": "2026-10-17T21:25:54.744798+00:00",
     "faculty": "Медико-профилактический факультет",
     "course": "3",
     "groups": 1,
     "cached_groups": 1,
     "stale_groups": 0
   },
-  "run_id": "39070675616",
+  "run_id": "39070888843",
   "telegram_bots_started": false,
   "upcoming": {
     "group": "П-114",
