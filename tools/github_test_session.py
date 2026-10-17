@@ -103,11 +103,19 @@ async def serve(token, run_id, seconds):
     handler = logging.StreamHandler()
     handler.setFormatter(RedactingFormatter([token, os.environ.get("BGMU_PROXY_URL", "")]))
     logging.basicConfig(level=logging.WARNING, handlers=[handler], force=True)
-    report = {"run_id": run_id, "state": "initializing", "received_updates": 0, "start_commands": 0}
+    report = {"run_id": run_id, "state": "initializing", "received_updates": 0, "start_commands": 0,
+              "handler_errors": 0, "interface": "personal-group-dashboard"}
     stop = asyncio.Event()
     initialized = False
     async with WebsiteClient.from_environment() as website:
         app = create_application(token, BGMUSource(website))
+
+        async def count_error(update, context):
+            # Count failures without publishing messages, identities or group preferences.
+            report["handler_errors"] += 1
+
+        app.add_error_handler(count_error)
+        report["morning_refresh_jobs"] = len(app.job_queue.jobs())
 
         async def count_update(update, context):
             if update.effective_message:
