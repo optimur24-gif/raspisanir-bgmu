@@ -1,11 +1,20 @@
 {
   "run_id": "39065847275",
-  "state": "initializing",
+  "state": "running",
   "received_updates": 0,
   "public_handler_errors": 0,
   "restricted_updates": 0,
   "interface": "course-refresh-compact",
   "admin_course_refresh": true,
   "schedule_format": "group-date-time-subject-room-teacher-initials",
-  "requested_duration_seconds": 2400
+  "requested_duration_seconds": 2400,
+  "linked_group": "П-114",
+  "linked_semester_events": 277,
+  "bot_url": "https://t.me/efdfsdvsava_bot",
+  "restricted_bot_url": "https://t.me/raspiisanieee_bot",
+  "privacy_disabled": true,
+  "both_bots_polling": true,
+  "shared_source": true,
+  "started_at": "2026-10-17T20:15:32.534717+00:00",
+  "planned_end_at": "2026-10-17T20:55:32.534717+00:00"
 }
