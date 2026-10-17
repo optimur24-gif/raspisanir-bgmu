@@ -1,0 +1,32 @@
+name: Temporary Telegram bot test
+
+on:
+  push:
+    branches: [codex/bgmu-github-test]
+    paths:
+      - .github/workflows/test-telegram.yml
+      - tools/github_test_session.py
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bgmu-temporary-telegram-test
+  cancel-in-progress: true
+
+jobs:
+  test-bot:
+    if: github.actor != 'github-actions[bot]' && github.ref == 'refs/heads/codex/bgmu-github-test'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.12.23"
+      - run: uv sync --locked
+      - name: Run a ten-minute test session
+        env:
+          BGMU_PROXY_URL: ${{ secrets.BGMU_PROXY_URL }}
+        run: uv run --locked python -m tools.github_test_session
