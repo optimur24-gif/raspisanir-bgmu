@@ -130,7 +130,7 @@ async def test_real_adapter_personal_search_week_and_atomic_refresh(profiles):
         source.cache.entries['obsolete'] = None
         version[0] = 2
         result = await refresh_saved_groups(source, profiles)
-        assert result['groups'] == 1 and result['catalogs'] == 3
+        assert result['groups'] == 1 and result['catalogs'] == 2
         assert 'obsolete' not in source.cache.entries
         assert all(entry.value['version'] == 2 for entry in source.cache.entries.values())
         assert profiles.get(123).path == PATH
@@ -232,7 +232,7 @@ async def test_daily_job_uses_confirmed_ufa_time_and_same_safe_refresh(profiles)
         profiles.save(123, PATH, LABELS)
         await morning_refresh(SimpleNamespace(job=job))
         assert profiles.metadata('last_refresh')['groups'] == 3
-        assert profiles.metadata('last_refresh')['teachers'] == 1
+        assert profiles.metadata('last_refresh')['teachers'] == 0
         assert profiles.metadata('last_refresh')['rooms'] == 1
         assert profiles.get(123).path == PATH
 

@@ -1,6 +1,7 @@
 """Adapter for the API used by bgmu-time.ru/assets/app.js."""
 
 from collections import OrderedDict
+from contextlib import aclosing
 import asyncio
 import logging
 from datetime import date, datetime, timedelta, timezone
@@ -14,7 +15,7 @@ from .source import Choice, GroupMatch, GroupUnavailable, Menu, Schedule, Sectio
 from .website import WebsiteClient
 
 
-TYPES = {"group": "Группы", "teacher": "Преподаватели", "room": "Аудитории"}
+TYPES = {"group": "Группы", "room": "Аудитории"}
 SEMESTERS = {"1": "Осенний семестр", "2": "Весенний семестр"}
 
 
@@ -67,6 +68,7 @@ class BGMUSource:
         self.snapshot = None
         self.daily_refresh_lock = asyncio.Lock()
         self.refresh_progress = {}
+        self.refresh_timeout = 600
 
     def use_snapshot(self, path):
         from .snapshot import DailySnapshot
@@ -106,14 +108,14 @@ class BGMUSource:
     def _cache_key(params):
         return tuple(sorted((key, str(value)) for key, value in params.items()))
 
-    async def _request_api(self, **params):
+    async def _request_api(self, *, _progress_name=None, **params):
         tracked = self.snapshot is not None
         if tracked:
             request = {key:str(value) for key,value in params.items() if key in ('action','type','id','year','semester')}
             kind = TYPES.get(params.get('type'),'')
             target = {'period':'учебный период','catalog':'каталог: '+kind,
-                      'schedule':'расписание: '+self.refresh_progress.get('entity_name',str(params.get('id','')))}.get(params.get('action'),'данные сайта')
-            self._progress('waiting','Ожидаю безопасный интервал перед запросом: '+target,request=request)
+                      'schedule':'расписание: '+(_progress_name or str(params.get('id','')))}.get(params.get('action'),'данные сайта')
+            self._progress('waiting','Ожидаю интервал перед запросом: '+target,request=request)
             await self.snapshot.wait_for_request()
             self._progress('download','Обращаюсь к bgmu-time.ru, скачиваю '+target)
         response = await self.website.get("/api.php", params=params)
@@ -352,7 +354,7 @@ class BGMUSource:
     async def refresh(self, paths=()):
         async with self.refresh_lock:
             if self.snapshot is not None:
-                return await self._refresh_snapshot()
+                return await self._timed_snapshot_refresh(self._refresh_snapshot())
             # Build the next generation before discarding any current values.
             # A failed upstream request leaves the previous generation intact.
             period = await self._request_api(action="period")
@@ -376,14 +378,14 @@ class BGMUSource:
                 self._validate_schedule(payload)
                 values[self._cache_key(params)] = payload
             self.cache.replace(values)
-            return {"refreshed_at": datetime.now(timezone.utc).isoformat(), "catalogs": 3,
+            return {"refreshed_at": datetime.now(timezone.utc).isoformat(), "catalogs": len(TYPES),
                     "groups": min(len(group_ids), limit), "on_demand_groups": max(0, len(group_ids) - limit)}
 
     async def refresh_course(self, faculty, course, *, period):
         async with self.refresh_lock:
             if self.snapshot is not None:
                 try:
-                    return await self._refresh_course_snapshot(faculty,course,period=period)
+                    return await self._timed_snapshot_refresh(self._refresh_course_snapshot(faculty,course,period=period))
                 except asyncio.CancelledError:
                     self._finish_progress('cancelled')
                     raise
@@ -431,6 +433,51 @@ class BGMUSource:
     async def aclose(self):
         await self.website.aclose()
 
+    async def _timed_snapshot_refresh(self, operation):
+        try:
+            async with asyncio.timeout(self.refresh_timeout):
+                return await operation
+        except TimeoutError:
+            self._finish_progress('failed')
+            self.snapshot.last_error = True
+            raise SourceError('Обновление остановлено: превышен лимит 10 минут. '
+                              'Сайт не успел отдать все данные; предыдущая копия сохранена.') from None
+
+    async def _download_schedules(self, items, kind, year, semester):
+        """Keep at most three requests in flight; the shared limiter spaces starts."""
+        iterator = iter(items)
+        pending = {}
+        def start_next():
+            item = next(iterator,None)
+            if item is None:
+                return False
+            params = dict(action='schedule',type=kind,id=str(item['id']),year=year,semester=semester)
+            task = asyncio.create_task(self._request_api(_progress_name=item['name'][:120],**params))
+            pending[task] = (item,params)
+            self.refresh_progress['active_downloads'] = [row[0]['name'][:120] for row in pending.values()]
+            return True
+        try:
+            for _ in range(3):
+                if not start_next():break
+            while pending:
+                done,_ = await asyncio.wait(pending,return_when=asyncio.FIRST_COMPLETED)
+                for task in done:
+                    item,params = pending[task]
+                    try:
+                        payload = task.result()
+                    except Exception:
+                        self._progress('download','Не удалось скачать расписание: '+item['name'][:120],request={k:str(v) for k,v in params.items()})
+                        raise
+                    del pending[task]
+                    self.refresh_progress['active_downloads'] = [row[0]['name'][:120] for row in pending.values()]
+                    self._progress('validate','Проверяю расписание: '+item['name'][:120],request={k:str(v) for k,v in params.items()})
+                    yield item,params,payload
+                    start_next()
+        finally:
+            for task in pending:task.cancel()
+            await asyncio.gather(*pending,return_exceptions=True)
+            self.refresh_progress['active_downloads'] = []
+
     async def _refresh_snapshot(self):
         self._begin_progress('full')
         logger = logging.getLogger(__name__)
@@ -455,26 +502,26 @@ class BGMUSource:
                     counts[kind] = len(items)
                     self.refresh_progress.update(section=TYPES[kind],section_total=len(items),section_completed=0,entity_name='')
                     logger.info('Каталог %s: %s расписаний для загрузки',kind,len(items))
-                    for index,item in enumerate(items,start=1):
-                        self.refresh_progress['entity_name'] = item['name'][:120]
-                        params = dict(action='schedule',type=kind,id=str(item['id']),year=year,semester=semester)
-                        payload = await self._request_api(**params)
-                        self._validate_schedule(payload)
-                        stale += int(bool((payload.get('meta') or {}).get('stale')))
-                        writer.put(params,payload)
-                        self.refresh_progress['completed'] += 1
-                        self.refresh_progress['section_completed'] = index
-                        self._progress('stored','Загружено и записано: '+item['name'][:120])
-                        if index % 50 == 0 or index == len(items):
-                            logger.info('Загрузка %s: %s/%s',kind,index,len(items))
+                    index = 0
+                    async with aclosing(self._download_schedules(items,kind,year,semester)) as downloads:
+                        async for item,params,payload in downloads:
+                            index += 1
+                            self._validate_schedule(payload)
+                            stale += int(bool((payload.get('meta') or {}).get('stale')))
+                            writer.put(params,payload)
+                            self.refresh_progress['completed'] += 1
+                            self.refresh_progress['section_completed'] = index
+                            self._progress('stored','Загружено и записано: '+item['name'][:120])
+                            if index % 50 == 0 or index == len(items):
+                                logger.info('Загрузка %s: %s/%s',kind,index,len(items))
                 self._progress('save','Сохраняю локальную базу расписания')
-                result = {'refreshed_at':datetime.now(timezone.utc).isoformat(), 'catalogs':3,
-                          'groups':counts['group'],'teachers':counts['teacher'],'rooms':counts['room'],
+                result = {'refreshed_at':datetime.now(timezone.utc).isoformat(), 'catalogs':len(TYPES),
+                          'groups':counts['group'],'teachers':0,'rooms':counts['room'],
                           'stale_schedules':stale,'on_demand_groups':0,'local_snapshot':True,
                           'year':year,'semester':semester}
                 writer.summary({**result,'full_refresh_at':result['refreshed_at']})
             self._finish_progress('completed')
-            logger.info('Ежедневная копия успешно обновлена: групп %s, преподавателей %s, аудиторий %s',counts['group'],counts['teacher'],counts['room'])
+            logger.info('Ежедневная копия успешно обновлена: групп %s, аудиторий %s',counts['group'],counts['room'])
             self.snapshot.last_error = False
             self.cache.replace({})
             return result
@@ -507,15 +554,15 @@ class BGMUSource:
         stale = 0
         self._progress('save','Сохраняю локальную базу расписания')
         with self.snapshot.stage(merge=True) as writer:
-            for index,item in enumerate(selected,start=1):
-                self.refresh_progress['entity_name'] = item['name'][:120]
-                params = dict(action='schedule',type='group',id=str(item['id']),year=year,semester=semester)
-                payload = await self._request_api(**params)
-                self._validate_schedule(payload)
-                stale += int(bool((payload.get('meta') or {}).get('stale')))
-                writer.put(params,payload)
-                self.refresh_progress.update(completed=index,section_completed=index)
-                self._progress('stored','Загружено и записано: '+item['name'][:120])
+            index = 0
+            async with aclosing(self._download_schedules(selected,'group',year,semester)) as downloads:
+                async for item,params,payload in downloads:
+                    index += 1
+                    self._validate_schedule(payload)
+                    stale += int(bool((payload.get('meta') or {}).get('stale')))
+                    writer.put(params,payload)
+                    self.refresh_progress.update(completed=index,section_completed=index)
+                    self._progress('stored','Загружено и записано: '+item['name'][:120])
             self._progress('save','Сохраняю локальную базу расписания')
             previous_catalog = self.snapshot.get(query)
             other_items = [item for item in self._catalog_items(previous_catalog)

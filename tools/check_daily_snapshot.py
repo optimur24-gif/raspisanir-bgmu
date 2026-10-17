@@ -9,7 +9,7 @@ import tempfile
 import httpx
 
 from bgmu_bot.backups import BackupStore
-from bgmu_bot.bgmu import BGMUSource
+from bgmu_bot.bgmu import BGMUSource, TYPES
 from bgmu_bot.source import SourceError
 from bgmu_bot.website import WebsiteClient
 
@@ -57,7 +57,7 @@ async def main():
                 report['snapshot_bytes']=source.snapshot.path.stat().st_size
                 website.offline=True
                 period=source.snapshot.get({'action':'period'})['period']
-                for kind in ('group','teacher','room'):
+                for kind in TYPES:
                     items=await source._catalog((kind,str(period['year']),str(period['semester'])))
                     for item in items:
                         payload=await source._api(action='schedule',type=kind,id=str(item['id']),year=str(period['year']),semester=str(period['semester']))

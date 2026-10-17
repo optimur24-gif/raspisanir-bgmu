@@ -34,19 +34,20 @@ async def test_all_entity_types_and_unsaved_groups_are_downloaded_once_and_read_
     async with WebsiteClient(transport=httpx.MockTransport(response)) as website:
         source=BGMUSource(website);local(source,tmp_path)
         result=await source.refresh(())
-        assert result['groups']==3 and result['teachers']==1 and result['rooms']==1
-        assert len(calls)==9 # period, three catalogs, five schedules
+        assert result['groups']==3 and result['teachers']==0 and result['rooms']==1
+        assert not any(call.get('type')=='teacher' for call in calls)
+        assert len(calls)==7 # period, two catalogs, four schedules
         unavailable[0]=True;source.cache.replace({})
-        for path in (PATH,('group','26','1','Лечебный факультет','2','2'),('teacher','26','1','10'),('room','26','1','10')):
+        for path in (PATH,('group','26','1','Лечебный факультет','2','2'),('room','26','1','10')):
             assert (await source.schedule(path,datetime(2026,10,21).date())).sections
         await source.search_groups('Л-201')
         for entry in source.cache.entries.values():entry.expires_at=0
         await source.schedule(PATH,datetime(2026,10,21).date())
-        assert len(calls)==9
+        assert len(calls)==7
         with pytest.raises(SourceError):await source._api(action='schedule',type='group',id='99999',year='26',semester='1')
         restarted=BGMUSource(website);local(restarted,tmp_path)
         assert (await restarted.schedule(PATH,datetime(2026,10,21).date())).sections
-        assert len(calls)==9
+        assert len(calls)==7
 
 
 @pytest.mark.asyncio
@@ -199,16 +200,52 @@ async def test_daily_gate_checks_again_after_concurrent_update(tmp_path):
         first=asyncio.create_task(morning_refresh(ctx));await entered.wait()
         second=asyncio.create_task(morning_refresh(ctx));release.set()
         await asyncio.gather(first,second)
-        assert len(calls)==9
-        await morning_refresh(ctx);assert len(calls)==9
+        assert len(calls)==7
+        await morning_refresh(ctx);assert len(calls)==7
 
 
 @pytest.mark.asyncio
-async def test_site_requests_are_spaced_at_least_one_second(tmp_path,monkeypatch):
+async def test_site_request_starts_are_rate_limited(tmp_path,monkeypatch):
     clock=[0.0];delays=[]
     monkeypatch.setattr('bgmu_bot.snapshot.time.monotonic',lambda:clock[0])
     async def sleep(delay):delays.append(delay);clock[0]+=delay
     monkeypatch.setattr('bgmu_bot.snapshot.asyncio.sleep',sleep)
     snapshot=DailySnapshot(tmp_path/'snapshot.sqlite3')
     for _ in range(3):await snapshot.wait_for_request()
-    assert delays==[1.0,1.0]
+    assert delays==pytest.approx([0.35,0.35])
+
+
+@pytest.mark.asyncio
+async def test_parallel_download_is_bounded_and_timeout_keeps_previous_copy(tmp_path):
+    blocking=[False];active=[0];peak=[0]
+    async def response(request):
+        query=dict(request.url.params)
+        if query.get('action')=='schedule':
+            active[0]+=1;peak[0]=max(peak[0],active[0])
+            try:
+                if blocking[0]:await asyncio.Event().wait()
+                else:await asyncio.sleep(0.005)
+            finally:active[0]-=1
+        return httpx.Response(200,json=api_response(request))
+    async with WebsiteClient(transport=httpx.MockTransport(response)) as website:
+        source=BGMUSource(website);local(source,tmp_path)
+        await source.refresh()
+        assert peak[0]==3 and active[0]==0
+        previous=source.snapshot.path.read_bytes()
+        blocking[0]=True;source.refresh_timeout=0.03
+        with pytest.raises(SourceError,match='10 минут'):
+            await source.refresh()
+        assert active[0]==0
+        assert source.refresh_progress['state']=='failed'
+        assert source.refresh_progress['active_downloads']==[]
+        assert source.snapshot.path.read_bytes()==previous
+        assert not list(tmp_path.glob('.daily-snapshot-*'))
+        assert not source.refresh_lock.locked()
+
+
+@pytest.mark.asyncio
+async def test_removed_teacher_section_rejects_old_buttons_without_website_calls(tmp_path):
+    async with WebsiteClient(transport=httpx.MockTransport(lambda _:pytest.fail('Unexpected request'))) as website:
+        source=BGMUSource(website);local(source,tmp_path)
+        assert {item.key for item in (await source.menu(())).choices}=={'group','room'}
+        with pytest.raises(SourceError):await source.menu(('teacher','26','1'))

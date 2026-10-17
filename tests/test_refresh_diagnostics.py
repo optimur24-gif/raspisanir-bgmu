@@ -86,15 +86,16 @@ async def test_progress_tracks_inflight_entity_counts_and_publish_backup(tmp_pat
         task=asyncio.create_task(source.refresh());await entered.wait()
         try:
             progress=source.refresh_progress
-            assert progress['state']=='running' and progress['phase']=='download'
-            assert progress['entity_name'] and progress['entity_name'] in progress['detail']
-            assert 'bgmu-time.ru' in progress['detail']
+            assert progress['state']=='running' and progress['phase'] in ('download','validate')
+            assert progress['active_downloads']
+            assert 'расписание:' in progress['detail']
+            assert any('bgmu-time.ru' in row['detail'] for row in progress['history'])
             assert progress['section']=='Группы' and progress['section_total']==3
-            assert progress['completed']==0
+            assert 0 <= progress['completed'] <= 2
         finally:
             release.set();await task
         progress=source.refresh_progress
-        assert progress['state']=='completed' and progress['completed']==5
+        assert progress['state']=='completed' and progress['completed']==4
         assert progress['backup_state']=='failed' and source.snapshot.available
         assert len(progress['history'])<=8
         details=' '.join(row['detail'] for row in progress['history'])

@@ -18,7 +18,7 @@ def key(params):
 
 
 class DailySnapshot:
-    def __init__(self, path, *, min_interval=1.0):
+    def __init__(self, path, *, min_interval=0.35):
         self.path = Path(path)
         self.min_interval = min_interval
         self.next_request = 0

@@ -128,6 +128,8 @@ class AdminPanel:
             lines.append('Загружено расписаний в этой попытке: '+str(progress['completed']))
         if progress.get('detail'):
             lines.append('Сейчас / последний этап: '+progress['detail'])
+        if progress.get('active_downloads'):
+            lines.append('В обработке: '+', '.join(progress['active_downloads']))
         total = progress.get('section_total')
         if total is not None:
             done = progress.get('section_completed',0)

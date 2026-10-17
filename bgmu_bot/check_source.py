@@ -119,7 +119,7 @@ async def verify_live(website, *, include_linked=False):
     refreshed = await source.refresh((personal_path,) if personal_path else ())
     result = {"year": year, "semester": semester, "scenarios": scenarios,
               "personal_group_lookup": personal_path is not None, "group_prefixes": prefixes, "refresh": refreshed,
-              "offline_snapshot": {"restart_passes":2,"entity_types_checked":3,"website_requests_during_reads":0}}
+              "offline_snapshot": {"restart_passes":2,"entity_types_checked":len(scenarios),"website_requests_during_reads":0}}
     if include_linked:
         from .shared_schedule import SharedSchedule
         import sqlite3
