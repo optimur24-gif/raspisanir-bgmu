@@ -1,0 +1,40 @@
+{
+  "status": "passed",
+  "run_id": "39074469228",
+  "sampled": true,
+  "telegram_bots_started": false,
+  "checked_at": "2026-10-17T22:17:43.050493+00:00",
+  "snapshot": {
+    "refreshed_at": "2026-10-17T22:18:59.275906+00:00",
+    "catalogs": 3,
+    "groups": 11,
+    "teachers": 9,
+    "rooms": 9,
+    "stale_schedules": 0,
+    "on_demand_groups": 0,
+    "local_snapshot": true,
+    "year": "26",
+    "semester": "1"
+  },
+  "snapshot_bytes": 172032,
+  "offline_reads_passed": true,
+  "website_requests": 33,
+  "last_request": {
+    "action": "schedule",
+    "type": "room",
+    "id": "987",
+    "year": "26",
+    "semester": "1"
+  },
+  "last_response": {
+    "status": 200,
+    "bytes": 72134,
+    "success": true,
+    "events_type": "list"
+  },
+  "full_catalog_counts": {
+    "group": 652,
+    "teacher": 979,
+    "room": 871
+  }
+}
