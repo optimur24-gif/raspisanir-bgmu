@@ -116,16 +116,23 @@ async def test_general_admin_refresh_updates_private_bot_and_failure_keeps_snaps
 
 
 @pytest.mark.asyncio
-async def test_duplicate_events_cannot_publish_broken_sql_snapshot():
+async def test_repeated_site_ids_have_unique_rows_and_wrong_group_keeps_snapshot():
     duplicate = [False]
     async with WebsiteClient(transport=httpx.MockTransport(lambda r: respond(r, duplicate=duplicate[0]))) as website:
         source = BGMUSource(website, cache_ttl=300)
         feed = SharedSchedule(source)
         await feed.refresh()
-        previous = feed.rows
         duplicate[0] = True
         source.cache.replace({})
-        with pytest.raises(SourceError):
+        await feed.refresh(force=True)
+        assert len(feed.rows) == 2 and feed.rows[0][0] != feed.rows[1][0]
+        previous = feed.rows
+        original = source._schedule_data
+        async def wrong_group(path):
+            data = await original(path)
+            return dict(data, entity={'name': 'Л-101'})
+        source._schedule_data = wrong_group
+        with pytest.raises(SourceError, match='другой группы'):
             await feed.refresh(force=True)
         assert feed.rows == previous
 

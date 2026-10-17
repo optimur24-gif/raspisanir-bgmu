@@ -43,8 +43,10 @@ class SharedSchedule:
                 raise SourceError('Группа П-114 не найдена однозначно в текущем периоде сайта.')
             path = exact[0].path + ('*',)
             payload = await self.source._schedule_data(path)
+            if normalize_group(str(payload['entity'].get('name') or '')) != normalize_group(self.group):
+                raise SourceError('Сайт вернул расписание другой группы вместо П-114.')
             rows = []
-            seen = set()
+            occurrences = {}
             for event in payload['events']:
                 if not event['date']:
                     continue
@@ -52,11 +54,11 @@ class SharedSchedule:
                     date.fromisoformat(event['date'])
                 except ValueError:
                     raise SourceError('Сайт вернул неверную дату занятия П-114.') from None
-                identity = str(event.get('id') or json.dumps(event, ensure_ascii=False, sort_keys=True))
-                row_id = int(hashlib.sha256(identity.encode()).hexdigest()[:15], 16)
-                if row_id in seen:
-                    raise SourceError('Сайт вернул неоднозначные идентификаторы занятий П-114.')
-                seen.add(row_id)
+                # A site lesson ID may recur on several dates or subgroups.
+                identity = json.dumps(event, ensure_ascii=False, sort_keys=True)
+                occurrence = occurrences.get(identity, 0)
+                occurrences[identity] = occurrence + 1
+                row_id = int(hashlib.sha256(f'{identity}#{occurrence}'.encode()).hexdigest()[:15], 16)
                 subject = ' · '.join(str(event.get(key) or '') for key in ('subject', 'kind') if event.get(key)) or 'Предмет уточняется'
                 extra = '\n'.join(str(event[key]) for key in ('comment', 'department') if event.get(key))
                 if extra:
