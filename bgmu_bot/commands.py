@@ -41,6 +41,8 @@ def schedule_request(text, day):
         return Request('day', day)
     if low in ('завтра', 'что завтра', 'пары завтра'):
         return Request('day', day + timedelta(days=1))
+    if low == 'расписание на':
+        raise ValueError('На какой день? Напиши, например: расписание на завтра, расписание на среду или расписание на 25.10.')
     if low.startswith('расписание на '):
         value = low[len('расписание на '):]
         if value == 'сегодня':

@@ -46,6 +46,8 @@ def test_unrelated_text_and_invalid_date():
     assert schedule_request('мне сегодня нравится погода', date(2026, 10, 21)) is None
     with pytest.raises(ValueError):
         schedule_request('расписание на 31.02', date(2026, 10, 21))
+    with pytest.raises(ValueError, match='На какой день'):
+        schedule_request('расписание на', date(2026, 10, 21))
 
 
 def context(*, admin=True):
