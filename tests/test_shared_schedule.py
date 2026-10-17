@@ -71,7 +71,7 @@ async def test_shared_response_is_reused_and_old_bot_reads_memory_not_manual_tab
         classes = original.get_classes_for_date(date(2026, 10, 21))
         assert len(classes) == len(public.sections) == 1
         assert classes[0]['subject'].startswith(public.sections[0].entries[0])
-        assert 'Преподаватель' in classes[0]['room'] and 'Подгруппа А' in classes[0]['room']
+        assert 'Преподаватель' in classes[0]['room'] and 'подгр. А' in classes[0]['room']
         rows = original.schedule_rows_between(date(2026, 10, 19), date(2026, 10, 25))
         assert len(rows) == 1 and rows[0]['subject'].startswith('Педиатрия')
         assert 'Педиатрия' in original.build_digest(date(2026, 10, 21), 'Доброе утро')

@@ -10,7 +10,7 @@ import time
 
 from aiogram import BaseMiddleware
 
-from .bgmu import readable_details
+from .compact import compact_details
 from .commands import schedule_request
 from .presentation import today
 from .source import SourceError
@@ -60,11 +60,8 @@ class SharedSchedule:
                 occurrence = occurrences.get(identity, 0)
                 occurrences[identity] = occurrence + 1
                 row_id = int(hashlib.sha256(f'{identity}#{occurrence}'.encode()).hexdigest()[:15], 16)
-                subject = ' · '.join(str(event.get(key) or '') for key in ('subject', 'kind') if event.get(key)) or 'Предмет уточняется'
-                extra = '\n'.join(str(event[key]) for key in ('comment', 'department') if event.get(key))
-                if extra:
-                    subject += '\n' + extra
-                location = '\n'.join(readable_details(event['details'])) or 'Место уточняется'
+                subject = str(event.get('subject') or 'Предмет уточняется')
+                location = '\n'.join(compact_details(event['details']))
                 rows.append((row_id, event['date'], '–'.join(str(event.get(key) or '') for key in ('start', 'end')), subject, location))
             # Publish a complete semester at once; a failure leaves the old snapshot.
             self.rows = tuple(rows)

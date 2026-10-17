@@ -51,13 +51,16 @@ async def time_answer(source, path, kind, now):
         if kind == 'left':
             text = f"⏳ До конца пары «{subject}» — <b>{math.ceil((end-now).total_seconds()/60)} мин.</b>"
         elif kind == 'next':
-            text = f"⏭ Следующая пара через {math.ceil((start-now).total_seconds()/60)} мин.\n<b>{escape(section.title)}</b>\n{subject}"
+            details = section.short_entries if section.short_entries is not None else section.entries[1:]
+            text = f"<b>{escape(schedule.title)}</b>\n{now:%d.%m.%Y}\n\n<b>{escape(section.short_title or section.title)}</b>\n" + '\n'.join(escape(value) for value in details)
         else:
-            text = f"📖 Сейчас идёт\n<b>{escape(section.title)}</b>\n{subject}"
+            details = section.short_entries if section.short_entries is not None else section.entries[1:]
+            text = f"<b>{escape(schedule.title)}</b>\n{now:%d.%m.%Y}\n\n<b>{escape(section.short_title or section.title)}</b>\n" + '\n'.join(escape(value) for value in details)
     else:
         text = '🌿 На сегодня больше пар нет.' if kind == 'next' else '🌿 Сейчас нет пары.'
-    if schedule.notices:
-        text += '\n\nℹ️ ' + escape(' '.join(schedule.notices))
+    notices = schedule.display_notices if schedule.display_notices is not None else schedule.notices
+    if notices:
+        text += '\n\n⚠️ ' + escape(' '.join(notices))
     return text
 
 

@@ -38,11 +38,10 @@ async def broadcast(source, profiles, bot, kind, target):
             fingerprint = hashlib.sha256('\n'.join(messages).encode()).hexdigest()
             if parts and profiles.delivery_fingerprint(chat_id, kind, target.isoformat()) != fingerprint:
                 parts = 0  # A changed response must be delivered from the beginning.
-            greeting = '☀️ Доброе утро! Расписание на сегодня' if kind == 'morning' else '🌙 Расписание на завтра'
             for index, message in enumerate(messages):
                 if index < parts:
                     continue
-                await send_part(bot, chat_id, greeting + '\n\n' + message)
+                await send_part(bot, chat_id, message)
                 profiles.record_delivery(chat_id, kind, target.isoformat(), index+1, fingerprint=fingerprint)
             profiles.record_delivery(chat_id, kind, target.isoformat(), len(messages), completed=True, fingerprint=fingerprint)
         except Forbidden:

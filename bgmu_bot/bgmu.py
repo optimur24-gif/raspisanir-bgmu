@@ -8,6 +8,7 @@ from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
 
 from .cache import ResponseCache
+from .compact import compact_details
 from .source import Choice, GroupMatch, GroupUnavailable, Menu, Schedule, Section, SourceError
 from .website import WebsiteClient
 
@@ -203,18 +204,21 @@ class BGMUSource:
                 entries.insert(1, "Группы: " + ", ".join(dict.fromkeys(groups)))
             if event.get("comment"):
                 entries.append(str(event["comment"]))
-            sections.append(Section(heading, tuple(entries)))
+            sections.append(Section(heading, tuple(entries), time+' · '+entries[0], compact_details(details, show_subgroups=not bool(subgroup))))
         year = int(path[1])
         year_label = f"{2000 + year}/{2001 + year}" if year < 100 else str(year)
         notices = [f"{year_label} · {SEMESTERS[path[2]]}", "Время занятий: Уфа, UTC+5."]
+        display_notices = []
         if data["entity"].get("subtitle"):
             notices.append(str(data["entity"]["subtitle"]))
         meta = data.get("meta") or {}
         if isinstance(meta, dict):
             if meta.get("stale"):
                 notices.append("Сайт вернул сохранённую копию: возможны изменения расписания.")
+                display_notices.append(notices[-1])
             if meta.get("warning"):
                 notices.append(str(meta["warning"]))
+                display_notices.append(notices[-1])
             if meta.get("updatedAt"):
                 updated = str(meta["updatedAt"])
                 try:
@@ -226,13 +230,14 @@ class BGMUSource:
                 notices.append("Обновление на сайте: " + updated)
         if data.get("undatedRecords"):
             notices.append("В источнике есть записи без точной даты. Проверьте их в ИСУ БГМУ.")
+            display_notices.append(notices[-1])
         params = dict(type=path[0], id=self._entity_id(path), year=path[1], semester=path[2], date=day.isoformat(), view="day")
         if subgroup:
             params["subgroup"] = subgroup
         title = str(data["entity"].get("name") or TYPES[path[0]])
         if subgroup:
             title += " · Подгруппа " + subgroup
-        return Schedule(title, day, tuple(sections), tuple(notices), "https://bgmu-time.ru/?" + urlencode(params))
+        return Schedule(title, day, tuple(sections), tuple(notices), "https://bgmu-time.ru/?" + urlencode(params), tuple(display_notices))
 
     async def week(self, path, day):
         self._validate_path(path)

@@ -137,8 +137,8 @@ async def test_time_queries_at_boundaries(profiles):
         at = lambda h, m: datetime(2026, 10, 21, h, m, tzinfo=TIMEZONE)
         assert '1 мин.' in await time_answer(source, PATH, 'left', at(10, 34))
         assert 'нет пары' in await time_answer(source, PATH, 'left', at(10, 35))
-        assert 'через 1 мин.' in await time_answer(source, PATH, 'next', at(8, 59))
-        assert 'Сейчас идёт' in await time_answer(source, PATH, 'current', at(9, 0))
+        assert '09:00–10:35 · Биология' in await time_answer(source, PATH, 'next', at(8, 59))
+        assert '09:00–10:35 · Биология' in await time_answer(source, PATH, 'current', at(9, 0))
 
 
 @pytest.mark.asyncio

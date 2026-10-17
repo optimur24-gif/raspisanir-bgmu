@@ -125,7 +125,7 @@ async def test_real_adapter_personal_search_week_and_atomic_refresh(profiles):
         assert sum(item['action'] == 'schedule' for item in requests) == 1
         messages = render_week(week)
         assert 'Биология' in '\n'.join(messages)
-        assert 'Неделя 19.10–25.10' in messages[0]
+        assert '19.10.2026' in messages[0] and '25.10.2026' in '\n'.join(messages)
         profiles.save(123, PATH, LABELS)
         source.cache.entries['obsolete'] = None
         version[0] = 2

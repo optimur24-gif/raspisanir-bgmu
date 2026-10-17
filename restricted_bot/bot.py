@@ -513,6 +513,8 @@ def get_classes_for_date(d: date) -> list:
 
 
 def fmt_class(c: dict) -> str:
+    if SCHEDULE_FEED is not None:
+        return f"<b>{esc(c['time'])} · {esc(c['subject'])}</b>\n{esc(c['room'])}"
     return f"⏰ {esc(c['time'])} | {esc(c['subject'])} | 🚪 {esc(c['room'])}"
 
 
@@ -1030,12 +1032,12 @@ def render_date(d: date, page: int = 0):
     selected, page, pages = page_slice(classes, page, 15)
     b = InlineKeyboardBuilder()
     day_name = DAYS_RU[DAYS_ORDER[d.weekday()]]
-    text = f"📅 <b>{day_name}, {fmt_date(d)}</b>\n\n"
+    text = f"<b>П-114</b>\n{d:%d.%m.%Y}\n\n" if SCHEDULE_FEED is not None else f"📅 <b>{day_name}, {fmt_date(d)}</b>\n\n"
     if classes:
         if pages > 1:
             text += f"Всего пар: {len(classes)} · страница {page + 1}/{pages}\n\n"
         for c in selected:
-            text += fmt_class(c) + "\n"
+            text += fmt_class(c) + "\n\n"
             if SCHEDULE_FEED is None:
                 b.row(Btn(f"🗑 {c['time']} {c['subject'][:20]}", f"cls_del_{c['id']}"),
                   Btn("✏️", f"sch_edit_{c['id']}"))
@@ -2028,6 +2030,10 @@ async def mute_user(chat_id: int, target: User, seconds: int, message: Message, 
 # ---------- вывод в чат ----------
 async def send_schedule_to_chat(chat_id, target_date: date):
     classes = get_classes_for_date(target_date)
+    if SCHEDULE_FEED is not None:
+        text = f"<b>П-114</b>\n{target_date:%d.%m.%Y}\n\n" + ("\n\n".join(fmt_class(c) for c in classes) if classes else "На сайте нет занятий на эту дату.")
+        await safe_send(chat_id, text)
+        return
     day_name = DAYS_RU[DAYS_ORDER[target_date.weekday()]]
     if classes:
         text = f"📅 <b>Расписание на {day_name.lower()} ({fmt_date(target_date)}):</b>\n\n" + "\n".join(fmt_class(c) for c in classes)
@@ -2038,6 +2044,14 @@ async def send_schedule_to_chat(chat_id, target_date: date):
 
 async def send_week_schedule(chat_id, target_date: date):
     monday = get_monday(target_date)
+    if SCHEDULE_FEED is not None:
+        text = "<b>П-114</b>\n"
+        for i in range(7):
+            d = monday + timedelta(days=i)
+            classes = get_classes_for_date(d)
+            text += f"\n{d:%d.%m.%Y}\n\n" + ("\n\n".join(fmt_class(c) for c in classes) if classes else "На сайте нет занятий на эту дату.") + "\n"
+        await safe_send(chat_id, text)
+        return
     days = 7 if get_classes_for_date(monday + timedelta(days=6)) else 6
     last_day = monday + timedelta(days=days - 1)
     text = f"📅 <b>РАСПИСАНИЕ (Неделя {fmt_short(monday)}-{fmt_short(last_day)}):</b>\n\n"
@@ -2070,7 +2084,10 @@ async def show_next_class(chat_id, now: datetime):
         if start and start > now.time():
             start_dt = now.replace(hour=start.hour, minute=start.minute, second=0, microsecond=0)
             mins = int((start_dt - now).total_seconds() // 60)
-            await safe_send(chat_id, f"⏭ <b>Следующая пара</b> (через {mins} мин.):\n🕐 {esc(c['time'])}\n📚 {esc(c['subject'])}\n🚪 {esc(c['room'])}")
+            if SCHEDULE_FEED is not None:
+                await safe_send(chat_id, f"<b>П-114</b>\n{now:%d.%m.%Y}\n\n" + fmt_class(c))
+            else:
+                await safe_send(chat_id, f"⏭ <b>Следующая пара</b> (через {mins} мин.):\n🕐 {esc(c['time'])}\n📚 {esc(c['subject'])}\n🚪 {esc(c['room'])}")
             return
     await safe_send(chat_id, "🎉 На сегодня больше пар нет!")
 
@@ -2079,7 +2096,10 @@ async def show_current_class(chat_id, now: datetime):
     for c in get_classes_for_date(now.date()):
         start, end = parse_time_range(c["time"])
         if start and end and start <= now.time() < end:
-            await safe_send(chat_id, f"📖 <b>Сейчас идёт:</b>\n🕐 {esc(c['time'])}\n📚 {esc(c['subject'])}\n🚪 {esc(c['room'])}")
+            if SCHEDULE_FEED is not None:
+                await safe_send(chat_id, f"<b>П-114</b>\n{now:%d.%m.%Y}\n\n" + fmt_class(c))
+            else:
+                await safe_send(chat_id, f"📖 <b>Сейчас идёт:</b>\n🕐 {esc(c['time'])}\n📚 {esc(c['subject'])}\n🚪 {esc(c['room'])}")
             return
     await safe_send(chat_id, "😴 Сейчас нет пары.")
 
@@ -4038,6 +4058,8 @@ def remember_notification(key: str):
 
 def build_digest(d: date, greeting: str) -> str | None:
     classes = get_classes_for_date(d)
+    if SCHEDULE_FEED is not None:
+        return f"<b>П-114</b>\n{d:%d.%m.%Y}\n\n" + ("\n\n".join(fmt_class(c) for c in classes) if classes else "На сайте нет занятий на эту дату.")
     hw = homework_for_date(d)
     ev = events_for_date(d)
     if not classes and not hw and not ev and d.weekday() == 6:
