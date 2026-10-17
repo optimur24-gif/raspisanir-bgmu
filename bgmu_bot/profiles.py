@@ -38,6 +38,9 @@ class ProfileStore:
                     parts INTEGER NOT NULL DEFAULT 0, completed INTEGER NOT NULL DEFAULT 0, fingerprint TEXT,
                     PRIMARY KEY(chat_id, kind, target)
                 );
+                CREATE TABLE IF NOT EXISTS access_blocks (
+                    target_id INTEGER PRIMARY KEY, actor_id INTEGER NOT NULL, updated_at TEXT NOT NULL
+                );
                 CREATE TABLE IF NOT EXISTS contacts (
                     user_id INTEGER PRIMARY KEY, username TEXT, name TEXT,
                     active INTEGER NOT NULL DEFAULT 1, announcements INTEGER NOT NULL DEFAULT 1,
@@ -137,7 +140,7 @@ class ProfileStore:
 
     def subscribed_chats(self):
         with self.connection() as db:
-            return tuple(row[0] for row in db.execute("SELECT chat_id FROM chats WHERE active=1 AND notifications=1 AND path IS NOT NULL"))
+            return tuple(row[0] for row in db.execute("SELECT chat_id FROM chats WHERE active=1 AND notifications=1 AND path IS NOT NULL AND chat_id NOT IN (SELECT target_id FROM access_blocks)"))
 
     def delivery(self, chat_id, kind, target):
         with self.connection() as db:
@@ -159,6 +162,7 @@ class ProfileStore:
 
     def migrate_chat(self, old_id, new_id):
         with self.connection() as db:
+            db.execute("INSERT OR IGNORE INTO access_blocks SELECT ?,actor_id,updated_at FROM access_blocks WHERE target_id=?", (new_id,old_id))
             db.execute("""INSERT INTO chats(chat_id,path,labels,active,notifications,title,username,bot_status,added_by,added_by_username,added_at,updated_at,announcements)
                 SELECT ?,path,labels,active,notifications,title,username,bot_status,added_by,added_by_username,added_at,updated_at,announcements FROM chats WHERE chat_id=?
                 ON CONFLICT(chat_id) DO NOTHING""", (new_id, old_id))
@@ -186,6 +190,26 @@ class ProfileStore:
                 (user_id, username, name, now, now, referral))
 
         return new
+
+    def access_target(self, target_id):
+        with self.connection() as db:
+            if target_id > 0:
+                row = db.execute('SELECT name,username FROM contacts WHERE user_id=?', (target_id,)).fetchone()
+            else:
+                row = db.execute('SELECT title,username FROM chats WHERE chat_id=?', (target_id,)).fetchone()
+        return row
+
+    def access_blocked(self, target_id):
+        with self.connection() as db:
+            return db.execute('SELECT 1 FROM access_blocks WHERE target_id=?', (target_id,)).fetchone() is not None
+
+    def set_access_blocked(self, target_id, blocked, actor_id):
+        with self.connection() as db:
+            if blocked:
+                db.execute("INSERT INTO access_blocks VALUES (?,?,?) ON CONFLICT(target_id) DO UPDATE SET actor_id=excluded.actor_id,updated_at=excluded.updated_at",
+                           (target_id,actor_id,datetime.now(timezone.utc).isoformat()))
+            else:
+                db.execute('DELETE FROM access_blocks WHERE target_id=?', (target_id,))
 
     def contact_subscription(self, user_id, enabled):
         with self.connection() as db:
@@ -230,9 +254,9 @@ class ProfileStore:
     def announcement_targets(self, audience, selected=None):
         with self.connection() as db:
             if audience == 'users':
-                rows = db.execute('SELECT user_id FROM contacts WHERE active=1 AND announcements=1 ORDER BY user_id')
+                rows = db.execute('SELECT user_id FROM contacts WHERE active=1 AND announcements=1 AND user_id NOT IN (SELECT target_id FROM access_blocks) ORDER BY user_id')
             else:
-                rows = db.execute('SELECT chat_id FROM chats WHERE active=1 AND announcements=1 ORDER BY chat_id')
+                rows = db.execute('SELECT chat_id FROM chats WHERE active=1 AND announcements=1 AND chat_id NOT IN (SELECT target_id FROM access_blocks) ORDER BY chat_id')
             ids = tuple(row[0] for row in rows)
         if audience == 'selected':
             selected = set(selected or ())
@@ -240,6 +264,8 @@ class ProfileStore:
         return ids
 
     def announcement_allowed(self, recipient_id):
+        if self.access_blocked(recipient_id):
+            return False
         with self.connection() as db:
             if recipient_id > 0:
                 row = db.execute('SELECT active,announcements FROM contacts WHERE user_id=?', (recipient_id,)).fetchone()

@@ -24,7 +24,7 @@ from .admin_panel import ADMIN_PANEL, AdminPanel
 from .broadcasts import broadcast_tick
 from .guide import GUIDE
 from .registry import RegistryObserver
-from .traffic import TrafficGuard
+from .traffic import AccessGuard, TrafficGuard
 from telegram import Update
 from .source import Choice, GroupUnavailable, Menu, ScheduleSource, SourceError
 
@@ -588,6 +588,7 @@ def create_application(token: str, source: ScheduleSource, *, profiles=None, adm
     panel = AdminPanel(profiles,ui) if personal_source else None
     if personal_source:
         profiles.recover_broadcasts()
+        application.add_handler(TypeHandler(Update,AccessGuard(profiles,ui.is_admin).handle),group=-11)
         application.add_handler(TypeHandler(Update,TrafficGuard(ui.is_admin).handle),group=-9)
         application.add_handler(TypeHandler(Update,RegistryObserver(profiles,ui.is_admin,ui.admin_username).handle),group=-10)
         application.job_queue.run_repeating(broadcast_tick,interval=1,first=3,data=profiles,

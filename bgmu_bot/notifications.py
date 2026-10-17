@@ -12,7 +12,9 @@ from .presentation import TIMEZONE, render_schedule
 from .source import GroupUnavailable, SourceError
 
 
-async def send_part(bot, chat_id, text):
+async def send_part(bot, chat_id, text, *, allowed=None):
+    if allowed is not None and not allowed():
+        return False
     try:
         await bot.send_message(chat_id, text, parse_mode=ParseMode.HTML)
     except RetryAfter as error:
@@ -20,7 +22,11 @@ async def send_part(bot, chat_id, text):
         if delay > 30:
             raise
         await asyncio.sleep(delay + 0.1)
+        if allowed is not None and not allowed():
+            return False
         await bot.send_message(chat_id, text, parse_mode=ParseMode.HTML)
+
+    return True
 
 
 async def broadcast(source, profiles, bot, kind, target):
@@ -41,14 +47,18 @@ async def broadcast(source, profiles, bot, kind, target):
             for index, message in enumerate(messages):
                 if index < parts:
                     continue
-                await send_part(bot, chat_id, message)
+                if not await send_part(bot, chat_id, message, allowed=lambda: not profiles.access_blocked(chat_id)):
+                    break
                 profiles.record_delivery(chat_id, kind, target.isoformat(), index+1, fingerprint=fingerprint)
-            profiles.record_delivery(chat_id, kind, target.isoformat(), len(messages), completed=True, fingerprint=fingerprint)
+            else:
+                profiles.record_delivery(chat_id, kind, target.isoformat(), len(messages), completed=True, fingerprint=fingerprint)
         except Forbidden:
             profiles.deactivate_chat(chat_id)
         except GroupUnavailable:
+            if profiles.access_blocked(chat_id):
+                continue
             try:
-                await send_part(bot, chat_id, '⚠️ Группа отсутствует в текущем учебном периоде. Администратору чата нужно выбрать её заново: /group, затем /notifications_on.')
+                await send_part(bot, chat_id, '⚠️ Группа отсутствует в текущем учебном периоде. Администратору чата нужно выбрать её заново: /group, затем /notifications_on.', allowed=lambda: not profiles.access_blocked(chat_id))
                 profiles.chat_notifications(chat_id, False)
             except Forbidden:
                 profiles.deactivate_chat(chat_id)

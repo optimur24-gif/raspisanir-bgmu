@@ -56,3 +56,30 @@ class TrafficGuard:
         if update.callback_query:
             await update.callback_query.answer('Подожди 2 секунды между запросами.')
         raise ApplicationHandlerStop
+
+
+class AccessGuard:
+    """Persistent owner bans; account and group bans are independent."""
+
+    def __init__(self, profiles, is_owner):
+        self.profiles, self.is_owner = profiles, is_owner
+        self.notices = Cooldown()
+
+    async def handle(self, update, context):
+        chat, user = update.effective_chat, update.effective_user
+        if not chat or getattr(update,'my_chat_member',None):
+            return
+        message = update.effective_message
+        if message and (getattr(message,'migrate_to_chat_id',None) or getattr(message,'migrate_from_chat_id',None)):
+            return
+        if chat.type == 'private' and self.is_owner(update):
+            return
+        if not (self.profiles.access_blocked(chat.id) or (user and self.profiles.access_blocked(user.id))):
+            return
+        text = '⛔ Доступ к боту отключён владельцем.'
+        if update.callback_query:
+            await update.callback_query.answer(text,show_alert=True)
+        elif message and (chat.type == 'private' or relevant_text(getattr(message,'text',None))):
+            if self.notices.allow((chat.id,user.id if user else 0)):
+                await message.reply_text(text)
+        raise ApplicationHandlerStop

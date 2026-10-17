@@ -130,10 +130,14 @@ class AdminPanel:
         page = min(max(0, page), max(0, (len(contacts)-1)//self.PAGE_SIZE))
         lines = [f'👤 Пользователи бота: {len(contacts)}',
                  'Только люди, обращавшиеся к боту в личке. Участники чатов не перечисляются.']
+        access_rows = []
         for contact in contacts[page*self.PAGE_SIZE:(page+1)*self.PAGE_SIZE]:
+            blocked = self.profiles.access_blocked(contact['user_id'])
+            access_rows.append([(('🔓 ' if blocked else '🔒 ')+(contact['name'] or contact['username'] or str(contact['user_id']))[:45], 'access',str(contact['user_id']))])
             username = '@'+contact['username'] if contact['username'] else 'тег не установлен'
             lines += ['', (contact['name'] or 'Имя неизвестно')[:100],
                       f"{username} · ID {contact['user_id']}",
+                      'Доступ к боту: '+('отключён' if blocked else 'разрешён'),
                       'Доступен: '+('да' if contact['active'] else 'нет'),
                       'Объявления: '+('включены' if contact['announcements'] else 'отключены')]
             if contact['username']:
@@ -145,7 +149,7 @@ class AdminPanel:
             pages.append(('‹','users',str(page-1)))
         if (page+1)*self.PAGE_SIZE < len(contacts):
             pages.append(('›','users',str(page+1)))
-        rows = [pages] if pages else []
+        rows = access_rows + ([pages] if pages else [])
         rows.append([('← Админ-панель','root','')])
         await self.show(update, context, '\n'.join(lines), rows)
 
@@ -164,13 +168,17 @@ class AdminPanel:
             current = self.profiles.registered_chats()[page*self.PAGE_SIZE:(page+1)*self.PAGE_SIZE]
         lines = ['👥 Подключения бота (без содержимого переписки)']
         status = {'administrator':'администратор','member':'участник','restricted':'ограничен','left':'вышел','kicked':'удалён','unavailable':'не удалось проверить'}
+        access_rows = []
         for group in current:
+            blocked = self.profiles.access_blocked(group['chat_id'])
+            access_rows.append([(('🔓 ' if blocked else '🔒 ')+(group['title'] or str(group['chat_id']))[:45], 'access',str(group['chat_id']))])
             saved = self.profiles.chat_group(group['chat_id'])
             actor = '@'+group['added_by_username'] if group['added_by_username'] else (str(group['added_by']) if group['added_by'] else 'Telegram не сообщил')
             when = datetime.fromisoformat(group['added_at']).astimezone(TIMEZONE).strftime('%d.%m %H:%M') if group['added_at'] else 'неизвестно'
             lines += ['', f"{group['title'] or 'Чат'} · {group['chat_id']}",
                       f"Статус: {status.get(group['bot_status'],'не проверено')} · {'активен' if group['active'] else 'неактивен'}",
                       f"Учебная группа: {saved.labels[5] if saved else 'не выбрана'}",
+                      "Доступ к боту: "+("отключён" if blocked else "разрешён"),
                       f"Добавил: {actor} · {when}, Уфа",
                       'Объявления: '+('включены' if group['announcements'] else 'отключены')]
             if group['username']:
@@ -179,7 +187,7 @@ class AdminPanel:
                 lines.append('Закрытый чат: публичной ссылки нет.')
         if not groups:
             lines.append('\nПока нет известных подключений.')
-        rows = []
+        rows = access_rows
         pages = []
         if page:
             pages.append(('‹','chats',str(page-1)))
@@ -189,6 +197,25 @@ class AdminPanel:
             rows.append(pages)
         rows += [[('🔄 Проверить права этой страницы','check',str(page))], [('← Админ-панель','root','')]]
         await self.show(update, context, '\n'.join(lines), rows)
+
+    async def access(self, update, context, target_id):
+        target = self.profiles.access_target(target_id)
+        if not target:
+            await self.show(update,context,'Получатель не найден.',[[('← Админ-панель','root','')]])
+            return
+        if target_id == update.effective_user.id:
+            await self.show(update,context,'Владелец не может отключить себе доступ.',[[('← Админ-панель','root','')]])
+            return
+        blocked = self.profiles.access_blocked(target_id)
+        text = (f"{'Пользователь' if target_id > 0 else 'Чат'}: {target[0] or target[1] or target_id}\nID: {target_id}\n"
+                f"Доступ: {'отключён' if blocked else 'разрешён'}.\n\n"
+                'Отключение запрещает команды, кнопки и автоматические рассылки общего бота. '
+                'Блокировка пользователя действует также в общих чатах. '
+                'Настройки и привязки сохраняются; доступ можно восстановить.')
+        action = 'access_allow' if blocked else 'access_deny'
+        await self.show(update,context,text,
+            [[('✅ Восстановить доступ' if blocked else '⛔ Подтвердить отключение',action,str(target_id))],
+             [('← Пользователи' if target_id > 0 else '← Чаты','users' if target_id > 0 else 'chats','0')]])
 
     async def history(self, update, context):
         ids = self.profiles.recent_broadcasts(update.effective_user.id)
@@ -273,6 +300,11 @@ class AdminPanel:
                 return
             job_id = self.profiles.queue_broadcast(update.effective_user.id,draft['body'],draft['audience'],targets)
             await self.report(update,context,job_id)
+        elif action in ('access','access_allow','access_deny') and value.lstrip('-').isdigit():
+            target_id = int(value)
+            if action != 'access' and target_id != update.effective_user.id and self.profiles.access_target(target_id):
+                self.profiles.set_access_blocked(target_id,action == 'access_deny',update.effective_user.id)
+            await self.access(update,context,target_id)
         elif action == 'users' and value.isdigit():
             await self.users(update,context,int(value))
         elif action in ('chats','check') and value.isdigit():
