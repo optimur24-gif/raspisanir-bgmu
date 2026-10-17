@@ -1,8 +1,8 @@
 {
   "run_id": "39063651099",
   "state": "running",
-  "received_updates": 10,
-  "start_commands": 0,
+  "received_updates": 11,
+  "start_commands": 1,
   "handler_errors": 0,
   "group_updates": 0,
   "interface": "group-chat-schedules",
