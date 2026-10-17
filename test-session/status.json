@@ -1,6 +1,6 @@
 {
   "run_id": "39063651099",
-  "state": "running",
+  "state": "finished",
   "received_updates": 27,
   "start_commands": 3,
   "handler_errors": 0,
@@ -14,5 +14,6 @@
   "bot_url": "https://t.me/efdfsdvsava_bot",
   "telegram_authorization": "passed",
   "started_at": "2026-10-17T19:43:28.965901+00:00",
-  "planned_end_at": "2026-10-17T19:53:28.965901+00:00"
+  "planned_end_at": "2026-10-17T19:53:28.965901+00:00",
+  "finished_at": "2026-10-17T19:53:30.382571+00:00"
 }
