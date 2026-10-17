@@ -1,9 +1,9 @@
 {
   "run_id": "39065847275",
   "state": "running",
-  "received_updates": 16,
+  "received_updates": 18,
   "public_handler_errors": 0,
-  "restricted_updates": 0,
+  "restricted_updates": 2,
   "interface": "course-refresh-compact",
   "admin_course_refresh": true,
   "schedule_format": "group-date-time-subject-room-teacher-initials",
@@ -17,5 +17,5 @@
   "shared_source": true,
   "started_at": "2026-10-17T20:15:32.534717+00:00",
   "planned_end_at": "2026-10-17T20:55:32.534717+00:00",
-  "heartbeat_at": "2026-10-17T20:23:25.568349+00:00"
+  "heartbeat_at": "2026-10-17T20:23:57.141912+00:00"
 }
