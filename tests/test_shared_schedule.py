@@ -168,6 +168,7 @@ async def test_unavailable_feed_does_not_report_empty_schedule_or_disable_modera
     moderation = SimpleNamespace(text='мут 20m', answer=AsyncMock())
     await middleware(handler, moderation, {})
     assert handler.await_count == 1
+    assert feed.refresh_safely.await_count == 1  # No website wait for moderation.
     edit = SimpleNamespace(data='sch_copy_week_2026-10-21', answer=AsyncMock())
     await middleware(handler, edit, {})
     assert handler.await_count == 1

@@ -31,6 +31,7 @@ class SharedSchedule:
         self.warning = ''
         self.updated = 0
         self.generation = -1
+        self.retry_at = 0
         self.lock = asyncio.Lock()
 
     async def refresh(self, *, force=False):
@@ -79,10 +80,14 @@ class SharedSchedule:
             self.generation = self.source.cache.generation
 
     async def refresh_safely(self, *, force=False):
+        if not force and time.monotonic() < self.retry_at:
+            return False
         try:
             await self.refresh(force=force)
+            self.retry_at = 0
             return True
         except SourceError as error:
+            self.retry_at = time.monotonic() + 30
             self.warning = 'Не удалось обновить П-114 с сайта. ' + ('Показана предыдущая копия.' if self.ready else 'Расписание пока недоступно.')
             logging.getLogger(__name__).warning('Обновление П-114 не выполнено (%s)', type(error).__name__)
             return False
@@ -115,15 +120,17 @@ class SharedScheduleMiddleware(BaseMiddleware):
         if callback.startswith(WRITE_CALLBACKS):
             await event.answer('Расписание П-114 поступает с сайта через общего бота. Ручное изменение отключено.', show_alert=True)
             return
-        # Cached shared responses do not add a website request per Telegram update.
-        await feed.refresh_safely()
         text = getattr(event, 'text', '') or ''
         try:
             request = schedule_request(text, today())
         except ValueError:
             request = True
-        related = re.match(r'(?i)^\s*(?:расписание|найти пары|аудитория|нагрузка|план|/start)', text)
-        if not feed.ready and (request or callback.startswith(SCHEDULE_CALLBACKS) or related):
+        related = request or callback.startswith(SCHEDULE_CALLBACKS) or re.match(r'(?i)^\s*(?:расписание|найти|аудитория|нагрузка|план|/start)', text)
+        # Moderation/homework must not wait for a website timeout.
+        if not related:
+            return await handler(event, data)
+        await feed.refresh_safely()
+        if not feed.ready:
             if callback:
                 await event.answer('Расписание П-114 пока недоступно. Попробуйте позже.', show_alert=True)
             else:
