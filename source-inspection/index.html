@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#ffffff">
+  <script src="assets/theme.js?v=18"></script>
+  <meta name="description" content="Расписание занятий БГМУ: группы, преподаватели, аудитории. Просмотр по дням и неделям.">
+  <title>Расписание БГМУ</title>
+  <link rel="icon" href="assets/logo.png" type="image/png">
+  <link rel="stylesheet" href="assets/app.css?v=2">
+  <link rel="stylesheet" href="assets/refresh.css?v=10">
+  <link rel="stylesheet" href="assets/mobile.css?v=19">
+  <link rel="stylesheet" href="assets/themes.css?v=26">
+  <link rel="stylesheet" href="assets/desktop.css?v=20">
+  <script id="app-config" type="application/json">{"title":"Расписание БГМУ","timezone":"Asia\/Yekaterinburg","years":{"26":"2026\/2027"},"defaultYear":26,"defaultSemester":1,"academicStart":"2026-09-01"}</script>
+  <script type="module" src="assets/app.js?v=23"></script>
+  <!-- Yandex.Metrika counter -->
+  <script src="assets/metrika.js?v=26" defer></script>
+  <!-- /Yandex.Metrika counter -->
+</head>
+<body>
+<!-- Yandex.Metrika counter: no-JavaScript fallback -->
+<noscript><div><img src="https://mc.yandex.ru/watch/113660893" class="metrika-pixel" width="1" height="1" alt=""></div></noscript>
+<a class="skip-link" href="#schedule">К расписанию</a>
+<header class="topbar">
+  <a class="brand" href="./" aria-label="Расписание БГМУ, главная">
+    <img class="brand-logo" src="assets/logo.png" width="48" height="51" alt="" aria-hidden="true">
+    <span><strong>БГМУ</strong><span class="brand-divider">/</span><span>Расписание занятий</span></span>
+  </a>
+  <span class="header-caption">Группы · Преподаватели · Аудитории</span>
+  <div class="header-mobile-actions"><button id="theme-toggle" class="theme-toggle icon-button" type="button" aria-label="Переключить тему"></button><button class="mobile-favorites icon-button" id="open-personal" type="button" aria-label="Открыть избранное" aria-haspopup="dialog" aria-controls="personal-dialog" aria-expanded="false"><span data-icon="star"></span></button>
+  <button class="mobile-search icon-button" id="open-search" type="button" aria-label="Открыть поиск" aria-controls="search-panel" aria-expanded="false"><span data-icon="search"></span></button></div>
+</header>
+<div class="layout">
+  <button id="drawer-backdrop" class="drawer-backdrop" aria-label="Закрыть поиск" hidden></button>
+  <aside class="sidebar" id="search-panel" aria-label="Поиск расписания">
+    <div class="sidebar-top"><div><span class="eyebrow">НАЙТИ РАСПИСАНИЕ</span><h1>Найти расписание</h1></div><button id="close-search" class="icon-button drawer-close" type="button" aria-label="Закрыть поиск"><span data-icon="close"></span></button></div>
+    <div class="entity-tabs" role="tablist" aria-label="Тип расписания">
+      <button type="button" role="tab" data-type="group" id="tab-group" aria-selected="true" aria-controls="catalog-panel">Группы</button>
+      <button type="button" role="tab" data-type="teacher" id="tab-teacher" aria-selected="false" aria-controls="catalog-panel">Преподаватели</button>
+      <button type="button" role="tab" data-type="room" id="tab-room" aria-selected="false" aria-controls="catalog-panel">Аудитории</button>
+    </div>
+    <div class="search-field"><span data-icon="search" aria-hidden="true"></span><label class="sr-only" for="search">Поиск</label><input id="search" type="search" placeholder="Например, Л-101" autocomplete="off" maxlength="100"><kbd>/</kbd></div>
+    <p class="search-hint" id="search-hint">Введите номер группы или выберите её из списка.</p>
+    <div class="period-selects"><label>Учебный год<select id="year"><option value="26">2026/2027</option></select></label><label>Семестр<select id="semester"><option value="1">Осенний</option><option value="2">Весенний</option></select></label></div>
+    <div id="group-filters" class="group-filters"><label class="sr-only" for="faculty">Факультет</label><select id="faculty"><option value="">Все факультеты</option></select><label class="sr-only" for="course">Курс</label><select id="course"><option value="">Все курсы</option></select></div>
+    <section id="favorites-section" class="favorites-section" hidden><h2><span data-icon="star" aria-hidden="true"></span>Избранное</h2><div id="favorites"></div></section>
+    <div class="catalog-caption"><span id="catalog-label">Группы</span><span id="catalog-count"></span></div>
+    <div id="catalog-panel" role="tabpanel" aria-labelledby="tab-group"><div id="catalog-status" class="catalog-status" role="status">Загружаем список…</div><div id="catalog" class="catalog-list"></div><button id="more-results" class="text-button more-results" type="button" hidden>Показать ещё</button></div>
+    <div class="sidebar-bottom"><span class="live-dot" aria-hidden="true"></span><a href="https://edu-isu.bashgmu.ru/ru/schedule/view/" target="_blank" rel="noopener noreferrer">Данные из ИСУ БГМУ</a></div>
+  </aside>
+  <main class="main" id="schedule" tabindex="-1">
+<section class="welcome" id="welcome">
+      <div class="welcome-icon" aria-hidden="true"><span data-icon="calendar"></span><span class="welcome-spark">✦</span></div>
+      <span class="eyebrow">ВСЁ В ОДНОМ МЕСТЕ</span><h2>Ваше расписание.<br>Без лишних поисков.</h2><p>Выберите группу, преподавателя или аудиторию.<br>А мы соберём ваш день в понятное расписание.</p>
+      <button id="welcome-search" class="primary-button" type="button"><span data-icon="search"></span>Найти расписание</button>
+      <div class="quick-examples"><span>Например:</span><button type="button" data-example="Л-101">Л-101</button><button type="button" data-example="Л-601">Л-601</button></div>
+      <div class="welcome-features"><span><span data-icon="calendar"></span>Дни и недели</span><span><span data-icon="star"></span>Избранные расписания</span><span><span data-icon="phone"></span>Удобно с телефона</span></div>
+    </section>
+    <div id="schedule-shell" hidden>
+      <div class="schedule-heading"><div class="entity-heading"><span class="eyebrow" id="entity-type">РАСПИСАНИЕ ГРУППЫ</span><h1 id="entity-name"></h1><p id="entity-subtitle"></p><div id="mobile-lesson-summary" class="mobile-lesson-summary"></div></div><div class="heading-actions"><button id="favorite-toggle" class="icon-button favorite-toggle" type="button" aria-label="Добавить в избранное" aria-pressed="false"><span data-icon="star"></span></button><button id="copy-link" class="icon-button" type="button" aria-label="Скопировать ссылку на расписание"><span data-icon="link"></span></button><a id="source-link" class="icon-button" target="_blank" rel="noopener noreferrer" aria-label="Открыть расписание в ИСУ БГМУ"><span data-icon="external"></span></a></div></div>
+      <div class="toolbar"><div class="week-navigation"><button id="prev-week" class="icon-button" type="button" aria-label="Предыдущая неделя"><span data-icon="chevron-left"></span></button><div class="week-label"><strong id="week-number"></strong><span id="week-range"></span></div><button id="next-week" class="icon-button" type="button" aria-label="Следующая неделя"><span data-icon="chevron-right"></span></button><button id="today" class="today-button" type="button">Сегодня</button></div><div class="view-tools"><div class="view-switch" role="group" aria-label="Режим просмотра"><button id="day-view" type="button" aria-pressed="true">День</button><button id="week-view" type="button" aria-pressed="false">Неделя</button></div><label class="date-button" title="Выбрать дату"><span data-icon="calendar" aria-hidden="true"></span><span class="sr-only">Выбрать дату</span><input id="date-picker" type="date" aria-label="Выбрать дату"></label></div></div>
+      <nav class="day-tabs" id="day-tabs" aria-label="Дни недели"></nav>
+      <div class="schedule-options"><label id="subgroup-control" hidden>Подгруппа<select id="subgroup"><option value="">Все подгруппы</option></select></label><div class="freshness"><span id="freshness" role="status"></span><button id="refresh" class="icon-button small" type="button" aria-label="Обновить расписание" title="Изменения проверяются не чаще одного раза в пять минут"><span data-icon="refresh"></span></button></div></div>
+      <div id="notice" class="notice" role="status" hidden></div>
+      <div id="schedule-status" class="schedule-status" role="status" hidden></div>
+      <div id="events" aria-busy="false"></div>
+    </div>
+    <footer class="page-footer feedback-footer"><span>Предложения и пожелания:</span><a href="https://max.ru/u/f9LHodD0cOKRUB2R3kXots7jvCpELbE4BcJgneF9cao19nu8F3BkQCpRMso" target="_blank" rel="noopener noreferrer">Ринат Байрамгулов</a></footer>
+  </main>
+</div>
+<nav class="mobile-navigation" aria-label="Главная навигация">
+  <button type="button" id="nav-schedule" aria-current="page"><span data-icon="calendar"></span><span>Расписание</span></button>
+  <button type="button" id="nav-search"><span data-icon="search"></span><span>Поиск</span></button>
+  <button type="button" id="nav-favorites"><span data-icon="star"></span><span>Избранное</span></button>
+</nav>
+<dialog id="personal-dialog" class="personal-dialog" aria-labelledby="personal-title"><button id="close-personal" class="icon-button personal-close" type="button" aria-label="Закрыть избранное"><span data-icon="close"></span></button><section id="personal-panel" class="personal-panel"><div class="personal-heading"><h2 id="personal-title">Избранное</h2></div><div id="quick-access" class="quick-access"></div></section></dialog>
+<div id="toast" class="toast" role="status" hidden></div>
+<noscript><div class="noscript">Для просмотра расписания включите JavaScript. <a href="https://edu-isu.bashgmu.ru/ru/schedule/view/">Открыть исходное расписание</a></div></noscript>
+</body>
+</html>

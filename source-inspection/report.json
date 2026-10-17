@@ -1,0 +1,62 @@
+{
+  "started_at": "2026-10-17T18:56:15.678745+00:00",
+  "target": "https://bgmu-time.ru/",
+  "proxy_configured": false,
+  "status": "homepage_fetched",
+  "files": [
+    {
+      "url": "https://bgmu-time.ru/",
+      "path": "index.html",
+      "bytes": 11051,
+      "sha256": "3b9f13d91787fb9605082d520e28bd936c886875eddeed2dd3d761964882ee8a"
+    },
+    {
+      "url": "https://bgmu-time.ru/assets/theme.js?v=18",
+      "path": "assets/8d1615d70f93_theme.js",
+      "bytes": 1818,
+      "sha256": "962d693541e2a4899fbee04cba46895f7655a8f8dbc1291000e0fdb2fab98ba4"
+    },
+    {
+      "url": "https://bgmu-time.ru/assets/app.js?v=23",
+      "path": "assets/c72a7d712e25_app.js",
+      "bytes": 34735,
+      "sha256": "fadcf4f9ec530e1b045008652bd16143605e4fc5f5b07b98bf62bd62bba26c64"
+    },
+    {
+      "url": "https://bgmu-time.ru/assets/metrika.js?v=26",
+      "path": "assets/7615f513271f_metrika.js",
+      "bytes": 666,
+      "sha256": "243510903ab47d8fe2877f92ed84868c0c2252d7247dd3fde2b52d0e2ef22953"
+    },
+    {
+      "url": "https://bgmu-time.ru/assets/details.js?v=16",
+      "path": "assets/61b34da5823b_details.js",
+      "bytes": 1518,
+      "sha256": "00dd843860c503fb75ad886fe2ddd8069b1b375d125eea6e8fe3d8c5a1633f84"
+    },
+    {
+      "url": "https://bgmu-time.ru/assets/place.js?v=15",
+      "path": "assets/11c356018666_place.js",
+      "bytes": 1284,
+      "sha256": "b5b5b1fc6d2d16e319a216d82857219a54e20ba0e3d3431ad91993d6ee0a4028"
+    },
+    {
+      "url": "https://bgmu-time.ru/assets/core.js",
+      "path": "assets/b370c235813b_core.js",
+      "bytes": 5780,
+      "sha256": "3ac7349d1a7840df254ba3514913b5ae0ea97378be795dd6f2fd7e4fe3aadd9a"
+    }
+  ],
+  "errors": [],
+  "skipped": [
+    {
+      "host": "mc.yandex.ru",
+      "reason": "external_asset"
+    }
+  ],
+  "api_candidates": [
+    "https://edu-isu.bashgmu.ru/ru/schedule/view/"
+  ],
+  "downloaded_bytes": 56852,
+  "finished_at": "2026-10-17T18:56:22.235072+00:00"
+}
