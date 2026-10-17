@@ -1,7 +1,7 @@
 {
   "run_id": "39065847275",
   "state": "running",
-  "received_updates": 2,
+  "received_updates": 14,
   "public_handler_errors": 0,
   "restricted_updates": 0,
   "interface": "course-refresh-compact",
@@ -17,5 +17,5 @@
   "shared_source": true,
   "started_at": "2026-10-17T20:15:32.534717+00:00",
   "planned_end_at": "2026-10-17T20:55:32.534717+00:00",
-  "heartbeat_at": "2026-10-17T20:16:04.010122+00:00"
+  "heartbeat_at": "2026-10-17T20:16:35.525175+00:00"
 }
