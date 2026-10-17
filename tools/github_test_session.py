@@ -111,7 +111,8 @@ async def serve(credentials, run_id, seconds):
     handler.setFormatter(RedactingFormatter([token, restricted_token, os.environ.get('BGMU_PROXY_URL', '')]))
     logging.basicConfig(level=logging.WARNING, handlers=[handler], force=True)
     report = {'run_id': run_id, 'state': 'initializing', 'received_updates': 0,
-              'public_handler_errors': 0, 'restricted_updates': 0, 'interface': 'shared-p114',
+              'public_handler_errors': 0, 'restricted_updates': 0, 'interface': 'course-refresh-compact',
+              'admin_course_refresh': True, 'schedule_format': 'group-date-time-subject-room-teacher-initials',
               'requested_duration_seconds': seconds}
     stop, restricted_ready = asyncio.Event(), asyncio.Event()
     initialized = False
