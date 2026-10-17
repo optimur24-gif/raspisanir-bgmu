@@ -149,19 +149,23 @@ class GroupUI:
         state = self.state(context)
         options, stage = state['options'], state['stage']
         count = len(options)
-        state['page'] = min(max(0, state.get('page', 0)), max(0, (count-1)//self.PAGE_SIZE))
-        start = state['page'] * self.PAGE_SIZE
+        page_size = 36 if stage == 'prefix' else self.PAGE_SIZE
+        state['page'] = min(max(0, state.get('page', 0)), max(0, (count-1)//page_size))
+        start = state['page'] * page_size
         state['nonce'] = secrets.token_hex(4)
         key = lambda action, value='': f"g:{state['nonce']}:{action}:{value}"
         rows = []
-        for i in range(start, min(start+self.PAGE_SIZE, count)):
+        buttons = []
+        for i in range(start, min(start+page_size, count)):
             item = options[i]
             label = item if stage == 'prefix' else (' · '.join((item.labels[5], item.labels[3], item.labels[4])) if stage == 'group' else item.label)
-            rows.append([Button(label, callback_data=key('pick', str(i)))])
+            buttons.append(Button(label, callback_data=key('pick', str(i))))
+        columns = 3 if stage == 'prefix' else 1
+        rows.extend(buttons[index:index+columns] for index in range(0, len(buttons), columns))
         pages = []
         if start:
             pages.append(Button('‹ Назад', callback_data=key('page', str(state['page']-1))))
-        if start+self.PAGE_SIZE < count:
+        if start+page_size < count:
             pages.append(Button('Далее ›', callback_data=key('page', str(state['page']+1))))
         if pages:
             rows.append(pages)
