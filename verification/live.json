@@ -1,6 +1,6 @@
 {
   "status": "passed",
-  "checked_at": "2026-10-17T20:36:00.142675+00:00",
+  "checked_at": "2026-10-17T20:53:54.250296+00:00",
   "proxy_configured": false,
   "year": "26",
   "semester": "1",
@@ -72,7 +72,7 @@
     "Э-"
   ],
   "refresh": {
-    "refreshed_at": "2026-10-17T20:36:11.098885+00:00",
+    "refreshed_at": "2026-10-17T20:54:04.678961+00:00",
     "catalogs": 3,
     "groups": 1,
     "on_demand_groups": 0
@@ -83,7 +83,7 @@
     "memory_only": true
   },
   "course_refresh": {
-    "refreshed_at": "2026-10-17T20:36:16.989951+00:00",
+    "refreshed_at": "2026-10-17T20:54:10.510703+00:00",
     "faculty": "Медико-профилактический факультет",
     "course": "3",
     "groups": 1,
