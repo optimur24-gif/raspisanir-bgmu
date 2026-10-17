@@ -1,6 +1,6 @@
 {
   "status": "passed",
-  "checked_at": "2026-10-17T19:07:30.490898+00:00",
+  "checked_at": "2026-10-17T19:30:19.620651+00:00",
   "proxy_configured": false,
   "year": "26",
   "semester": "1",
@@ -15,7 +15,9 @@
       "subgroups_checked": [
         "А",
         "Б"
-      ]
+      ],
+      "week_days": 7,
+      "week_messages": 1
     },
     {
       "mode": "teacher",
@@ -24,7 +26,9 @@
       "semester_events": 13,
       "day_lessons": 1,
       "telegram_messages": 1,
-      "subgroups_checked": []
+      "subgroups_checked": [],
+      "week_days": 7,
+      "week_messages": 1
     },
     {
       "mode": "room",
@@ -33,7 +37,9 @@
       "semester_events": 6,
       "day_lessons": 1,
       "telegram_messages": 1,
-      "subgroups_checked": []
+      "subgroups_checked": [],
+      "week_days": 7,
+      "week_messages": 1
     }
   ]
 }
