@@ -1,6 +1,6 @@
 """Instructions shared by /start, help and the group welcome."""
 
-from .journal import JOURNAL_GUIDE
+from .journal_notice import JOURNAL_GUIDE
 
 GUIDE = (
     '📖 Как пользоваться ботом\n\n'

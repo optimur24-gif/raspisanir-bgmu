@@ -14,7 +14,7 @@ from .commands import schedule_request
 from .compact import day_label
 from .presentation import TIMEZONE, render_schedule, render_week
 from .source import GroupUnavailable, SourceError
-from .journal import JOURNAL_GUIDE
+from .journal_notice import JOURNAL_GUIDE
 
 HELP = (
     "🎓 Расписание для этого чата\n\n"
