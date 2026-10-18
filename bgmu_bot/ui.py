@@ -25,7 +25,7 @@ from .admin_panel import ADMIN_PANEL, AdminPanel
 from .broadcasts import broadcast_tick
 from .guide import GUIDE
 from .registry import RegistryObserver
-from .journal import JournalObserver
+from .journal_runtime import JournalRuntime
 from .traffic import AccessGuard, TrafficGuard
 from telegram import Update
 from .source import Choice, GroupUnavailable, Menu, ScheduleSource, SourceError
@@ -625,7 +625,7 @@ def create_application(token: str, source: ScheduleSource, *, profiles=None, adm
         if not (profiles.backups.directory/'settings.sqlite3').exists():
             profiles.backup_settings()
         profiles.recover_broadcasts()
-        journal = JournalObserver(profiles,profiles.journals,ui.admin_username)
+        journal = JournalRuntime(profiles,profiles.journals,ui.admin_username)
         application.add_handler(TypeHandler(Update,journal.handle),group=-12)
         application.job_queue.run_repeating(journal.announce_existing,interval=60,first=2,
             name='bgmu-journal-disclosure',job_kwargs={'max_instances':1,'coalesce':True})

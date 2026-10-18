@@ -1,20 +1,13 @@
 """Disclosed group journals: no recording before a visible chat notice."""
 
-import asyncio
 from contextlib import closing
 import hashlib
 import logging
 import os
 from pathlib import Path
 import sqlite3
-import time
-
-from telegram.error import TelegramError
 
 from .presentation import TIMEZONE
-
-
-from .journal_notice import JOURNAL_GUIDE, notice_text
 
 
 def single_line(value):
@@ -121,81 +114,20 @@ class JournalStore:
 
 
 class JournalObserver:
-    def __init__(self, profiles, store, owner_username):
+    """Write messages only when the runtime supplies a disclosure receipt."""
+    def __init__(self, profiles, store, owner_username=None):
         self.profiles,self.store = profiles,store
-        self.notice = notice_text(owner_username)
-        self.signature = hashlib.sha256(self.notice.encode()).hexdigest()
-        self.locks = [asyncio.Lock() for _ in range(32)]
-        self.retry_after = {}
 
-    def lock(self, chat_id):
-        return self.locks[abs(chat_id)%len(self.locks)]
-
-    async def ensure_notice(self, bot, chat_id, *, rejoined=False):
-        state = self.store.state(chat_id)
-        if not rejoined and state:
-            if not state['present']:return False
-            if state['notice_id'] and state['signature']==self.signature:return True
-        if time.monotonic() < self.retry_after.get(chat_id,0):return False
-        try:
-            sent = await bot.send_message(chat_id,self.notice,parse_mode=None)
-            self.store.notified(chat_id,sent.message_id,self.signature)
-        except (TelegramError,OSError,sqlite3.Error) as error:
-            if len(self.retry_after)>=10000:self.retry_after.pop(next(iter(self.retry_after)))
-            self.retry_after[chat_id] = time.monotonic()+60
-            logging.getLogger(__name__).warning('Журнал чата %s не запущен: предупреждение не доставлено (%s)',chat_id,type(error).__name__)
-            return False
-        self.retry_after.pop(chat_id,None)
-        try:
-            await bot.pin_chat_message(chat_id,sent.message_id,disable_notification=False)
-        except TelegramError:
-            pass  # Pinning is best effort; the visible notice was delivered.
-        return True
-
-    async def handle(self, update, context):
+    async def handle(self, update, context, *, disclosed=False):
+        if disclosed is not True:return
         chat = update.effective_chat
         if not chat or chat.type not in ('group','supergroup'):return
-        async with self.lock(chat.id):
-            try:
-                await self._handle(update,context,chat)
-            except (OSError,sqlite3.Error) as error:
-                logging.getLogger(__name__).warning('Запись журнала чата %s не выполнена (%s)',chat.id,type(error).__name__)
-
-    async def _handle(self, update, context, chat):
-        event = getattr(update,'my_chat_member',None)
-        if event:
-            new,old = event.new_chat_member,event.old_chat_member
-            present = new.status in ('member','administrator') or (new.status=='restricted' and getattr(new,'is_member',False))
-            if not present:
-                self.store.removed(chat.id)
-                self.retry_after.pop(chat.id,None)
-                return
-            state = self.store.state(chat.id)
-            rejoined = old.status in ('left','kicked') or bool(state and not state['present'])
-            await self.ensure_notice(context.bot,chat.id,rejoined=rejoined)
-            return
         message = getattr(update,'message',None) or getattr(update,'edited_message',None)
-        if not message:return  # Never archive a callback's effective_message.
-        if getattr(message,'migrate_to_chat_id',None):
-            self.store.removed(chat.id)
-            return
-        state = self.store.state(chat.id)
-        already_disclosed = bool(state and state['present'] and state['notice_id'] and state['signature']==self.signature)
-        if not await self.ensure_notice(context.bot,chat.id):return
-        joined = getattr(message,'new_chat_members',None) or ()
-        if already_disclosed and any(not member.is_bot for member in joined):
-            try:await context.bot.send_message(chat.id,self.notice,parse_mode=None)
-            except TelegramError:pass
+        if not message:return
         user = getattr(message,'from_user',None)
         if user and user.is_bot and not getattr(message,'sender_chat',None):return
-        line = message_line(message,edited=bool(getattr(update,'edited_message',None)))
-        if line:self.store.append(chat.id,message,line)
-
-    async def announce_existing(self, context):
-        # Existing installations must also disclose before their first recorded message.
-        for chat in self.profiles.registered_chats():
-            if not chat['active'] or chat['bot_status'] in ('left','kicked'):continue
-            async with self.lock(chat['chat_id']):
-                try:await self.ensure_notice(context.bot,chat['chat_id'])
-                except (OSError,sqlite3.Error):
-                    logging.getLogger(__name__).warning('Не удалось подготовить журнал чата %s',chat['chat_id'])
+        try:
+            line = message_line(message,edited=bool(getattr(update,'edited_message',None)))
+            if line:self.store.append(chat.id,message,line)
+        except (OSError,sqlite3.Error) as error:
+            logging.getLogger(__name__).warning('Запись журнала чата %s не выполнена (%s)',chat.id,type(error).__name__)

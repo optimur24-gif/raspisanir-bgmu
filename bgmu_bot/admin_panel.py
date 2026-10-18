@@ -312,6 +312,9 @@ class AdminPanel:
         state = store.state(chat_id)
         status = ('предупреждение ещё не отправлено' if not state or not state['notice_id'] else
                   'бот удалён; запись остановлена' if not state['present'] else 'предупреждение отправлено; запись новых сообщений активна')
+        notice_error = self.profiles.metadata('journal_notice_error')
+        if notice_error:
+            status = 'Запись заблокирована: ошибка модуля предупреждения ('+notice_error+').'
         text = (f'📝 Журнал: {target[0] or chat_id}\n{status}\n'
                 f'Записей: {count} · размер: {size/1024:.1f} КиБ\n'
                 'Время в строках — Уфа. Файлы вложений не сохраняются. '
