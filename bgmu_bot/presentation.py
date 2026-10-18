@@ -7,6 +7,7 @@ from telegram import InlineKeyboardButton as Button
 from telegram import InlineKeyboardMarkup
 
 from .source import Schedule, Section
+from .compact import day_label
 
 
 TIMEZONE = ZoneInfo("Asia/Yekaterinburg")
@@ -63,7 +64,7 @@ def calendar_keyboard(month: date, nonce: str) -> InlineKeyboardMarkup:
 
 def render_schedule(schedule: Schedule, *, show_date=True) -> list[str]:
     """Keep section headings and split before Telegram's message size limit."""
-    heading = f"<b>{escape(schedule.title)}</b>" + (f"\n{schedule.day:%d.%m.%Y}" if show_date else '')
+    heading = f"<b>{escape(schedule.title)}</b>" + ("\n"+day_label(schedule.day) if show_date else '')
     sections = list(schedule.sections) or [Section("🌿 Свободный день", ("На сайте нет занятий на эту дату.",))]
     notices = schedule.display_notices if schedule.display_notices is not None else schedule.notices
     if notices:
@@ -97,7 +98,7 @@ def render_week(schedules):
     first, last = schedules[0], schedules[-1]
     sections = []
     for schedule in schedules:
-        title = f"{schedule.day:%d.%m.%Y}"
+        title = day_label(schedule.day)
         lessons = tuple("\n".join((section.short_title or section.title,
                                   *(section.short_entries if section.short_entries is not None else section.entries))) for section in schedule.sections)
         sections.append(Section(title, lessons or ("На сайте нет занятий на эту дату.",)))

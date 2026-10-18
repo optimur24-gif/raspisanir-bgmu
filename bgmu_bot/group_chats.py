@@ -11,8 +11,10 @@ from telegram.constants import ParseMode
 from telegram.error import TelegramError
 
 from .commands import schedule_request
+from .compact import day_label
 from .presentation import TIMEZONE, render_schedule, render_week
 from .source import GroupUnavailable, SourceError
+from .journal import JOURNAL_GUIDE
 
 HELP = (
     "🎓 Расписание для этого чата\n\n"
@@ -21,7 +23,8 @@ HELP = (
     "Также: расписание на среду · расписание на 21.10 · сейчас · следующая пара.\n"
     "Утром в 07:30 — на сегодня; вечером в 20:00 — на завтра (Уфа).\n"
     "/notifications_on и /notifications_off — рассылка (для администратора чата).\n"
-    "Чтобы видеть команды без /, бот должен быть администратором либо иметь отключённый Privacy Mode в BotFather."
+    "Чтобы видеть команды без /, бот должен быть администратором либо иметь отключённый Privacy Mode в BotFather.\n\n"
+    + JOURNAL_GUIDE
 )
 
 
@@ -52,10 +55,10 @@ async def time_answer(source, path, kind, now):
             text = f"⏳ До конца пары «{subject}» — <b>{math.ceil((end-now).total_seconds()/60)} мин.</b>"
         elif kind == 'next':
             details = section.short_entries if section.short_entries is not None else section.entries[1:]
-            text = f"<b>{escape(schedule.title)}</b>\n{now:%d.%m.%Y}\n\n<b>{escape(section.short_title or section.title)}</b>\n" + '\n'.join(escape(value) for value in details)
+            text = f"<b>{escape(schedule.title)}</b>\n{day_label(now)}\n\n<b>{escape(section.short_title or section.title)}</b>\n" + '\n'.join(escape(value) for value in details)
         else:
             details = section.short_entries if section.short_entries is not None else section.entries[1:]
-            text = f"<b>{escape(schedule.title)}</b>\n{now:%d.%m.%Y}\n\n<b>{escape(section.short_title or section.title)}</b>\n" + '\n'.join(escape(value) for value in details)
+            text = f"<b>{escape(schedule.title)}</b>\n{day_label(now)}\n\n<b>{escape(section.short_title or section.title)}</b>\n" + '\n'.join(escape(value) for value in details)
     else:
         text = '🌿 На сегодня больше пар нет.' if kind == 'next' else '🌿 Сейчас нет пары.'
     notices = schedule.display_notices if schedule.display_notices is not None else schedule.notices

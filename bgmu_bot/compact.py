@@ -46,3 +46,29 @@ def compact_details(details, *, show_subgroups=True):
             prefix = 'подгр. ' + ', '.join(sorted(row['subgroups'])) + ': '
         lines.append(prefix + room + ' · ' + short_teacher(detail.get('teacher')))
     return tuple(lines) or ('Аудитория не указана · Преподаватель не указан',)
+
+
+def lesson_kind(value):
+    """Keep the site's lesson type visible, using compact Russian labels."""
+    text = str(value or '').strip()
+    normalized = text.casefold().replace('ё','е')
+    if normalized.startswith('лек'):
+        return '🎓 Лекция'
+    if normalized.startswith('практ'):
+        return '🧪 Практика'
+    if normalized.startswith('лаб'):
+        return '🔬 Лабораторная'
+    if normalized.startswith('семинар'):
+        return '💬 Семинар'
+    if normalized.startswith('экзам'):
+        return '📝 Экзамен'
+    if normalized.startswith(('зачет','дифференцирован')):
+        return '✅ '+text
+    return '📚 '+(text or 'Занятие')
+
+
+DAY_NAMES = ('Понедельник','Вторник','Среда','Четверг','Пятница','Суббота','Воскресенье')
+
+
+def day_label(day):
+    return f'{day:%d.%m.%Y} · {DAY_NAMES[day.weekday()]}'

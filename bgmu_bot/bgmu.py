@@ -10,7 +10,7 @@ from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
 
 from .cache import ResponseCache
-from .compact import compact_details
+from .compact import compact_details, lesson_kind
 from .source import Choice, GroupMatch, GroupUnavailable, Menu, Schedule, Section, SourceError
 from .website import WebsiteClient
 
@@ -259,7 +259,7 @@ class BGMUSource:
                 entries.insert(1, "Группы: " + ", ".join(dict.fromkeys(groups)))
             if event.get("comment"):
                 entries.append(str(event["comment"]))
-            sections.append(Section(heading, tuple(entries), time+' · '+entries[0], compact_details(details, show_subgroups=not bool(subgroup))))
+            sections.append(Section(heading, tuple(entries), time+' · '+lesson_kind(event.get('kind'))+' · '+entries[0], compact_details(details, show_subgroups=not bool(subgroup))))
         year = int(path[1])
         year_label = f"{2000 + year}/{2001 + year}" if year < 100 else str(year)
         notices = [f"{year_label} · {SEMESTERS[path[2]]}", "Время занятий: Уфа, UTC+5."]

@@ -9,6 +9,7 @@ from pathlib import Path
 import sqlite3
 
 from .backups import BackupStore
+from .journal import JournalStore
 
 
 @dataclass(frozen=True)
@@ -22,6 +23,7 @@ class ProfileStore:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.backups = BackupStore(self.path.parent / 'backups')
+        self.journals = JournalStore(self.path.parent / 'chat-journals')
         existed = self.path.exists()
         with self.connection() as db:
             db.executescript("""

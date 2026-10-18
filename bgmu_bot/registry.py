@@ -1,4 +1,4 @@
-"""Connection metadata only. Message contents are never archived."""
+"""Connection metadata observer; disclosed message journaling is handled separately."""
 
 import re
 

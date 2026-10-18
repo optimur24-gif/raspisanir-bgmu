@@ -51,9 +51,9 @@ class AdminPanel:
         await self.show(update, context,
             f"🛠 Админ-панель\nПользователей: {stats['users']} · получают объявления: {stats['subscribed_users']}\n"
             f"Чатов: {stats['groups']} · получают объявления: {stats['subscribed_groups']}\n\n"
-            'Здесь доступны только сведения о подключении бота. Журналов переписки нет.',
+            'Здесь доступны подключения и открытые журналы чатов. Перед записью бот предупреждает участников.',
             [[('📣 Новая рассылка','audiences','')], [('👤 Пользователи','users','0')], [('👥 Подключённые чаты','chats','0')],
-             [('🔔 Уведомления','alerts','')],
+             [('🔔 Уведомления','alerts','')], [('🧹 Очистить все журналы чатов','journals_clear_ask','')],
              [('💾 Резервные копии','backups','')], [('🩺 Статус обновления','refresh_status','')],
              [('📬 История и статус рассылок','history','')], [('🧹 Очистить историю рассылок','clear_ask','')],
              [('🔄 Обновить данные','refresh',''),('🎯 Обновить курс','course','')]])
@@ -265,13 +265,14 @@ class AdminPanel:
                 except TelegramError:
                     self.profiles.observe_chat(group['chat_id'],title=group['title'],username=group['username'],status='unavailable')
             current = self.profiles.registered_chats()[page*self.PAGE_SIZE:(page+1)*self.PAGE_SIZE]
-        lines = ['👥 Подключения бота (без содержимого переписки)']
+        lines = ['👥 Подключения бота и журналы чатов']
         status = {'administrator':'администратор','member':'участник','restricted':'ограничен','left':'вышел','kicked':'удалён','unavailable':'не удалось проверить'}
         access_rows = []
         for group in current:
             blocked = self.profiles.access_blocked(group['chat_id'])
             access_rows.append([(('🔓 ' if blocked else '🔒 ')+(group['title'] or str(group['chat_id']))[:45], 'access',str(group['chat_id']))])
             access_rows.append([('👥 Участники: '+(group['title'] or str(group['chat_id']))[:40],'members',f"{group['chat_id']},0")])
+            access_rows.append([('📝 Журнал: '+(group['title'] or str(group['chat_id']))[:40],'journal',str(group['chat_id']))])
             saved = self.profiles.chat_group(group['chat_id'])
             actor = '@'+group['added_by_username'] if group['added_by_username'] else (str(group['added_by']) if group['added_by'] else 'Telegram не сообщил')
             when = datetime.fromisoformat(group['added_at']).astimezone(TIMEZONE).strftime('%d.%m %H:%M') if group['added_at'] else 'неизвестно'
@@ -297,6 +298,54 @@ class AdminPanel:
             rows.append(pages)
         rows += [[('🔄 Проверить права этой страницы','check',str(page))], [('← Админ-панель','root','')]]
         await self.show(update, context, '\n'.join(lines), rows)
+
+    async def journal(self, update, context, chat_id):
+        if not self.allowed(update):
+            await self.deny(update)
+            return
+        target = self.profiles.access_target(chat_id) if chat_id < 0 else None
+        if not target:
+            await self.show(update,context,'Чат не найден.',[[('← Чаты','chats','0')]])
+            return
+        store = self.profiles.journals
+        count,size = store.info(chat_id)
+        state = store.state(chat_id)
+        status = ('предупреждение ещё не отправлено' if not state or not state['notice_id'] else
+                  'бот удалён; запись остановлена' if not state['present'] else 'предупреждение отправлено; запись новых сообщений активна')
+        text = (f'📝 Журнал: {target[0] or chat_id}\n{status}\n'
+                f'Записей: {count} · размер: {size/1024:.1f} КиБ\n'
+                'Время в строках — Уфа. Файлы вложений не сохраняются. '
+                'Скачать журнал можно только здесь, в личной админ-панели владельца.')
+        path = store.log_path(chat_id)
+        if size:
+            with path.open('rb') as saved:
+                saved.seek(max(0,size-12000))
+                tail = saved.read().decode('utf-8',errors='replace').splitlines()
+            text += '\n\nПоследние записи:\n'+'\n'.join(tail[-5:])[-1800:]
+        await self.show(update,context,text,
+            [[('📥 Скачать TXT','journal_get',str(chat_id))],
+             [('🧹 Очистить этот журнал','journal_clear_ask',str(chat_id))],
+             [('🔄 Обновить экран','journal',str(chat_id))],[('← Чаты','chats','0')]])
+
+    async def journal_download(self, update, context, chat_id):
+        if not self.allowed(update):
+            await self.deny(update)
+            return
+        if chat_id >= 0 or not self.profiles.access_target(chat_id):return
+        path = self.profiles.journals.log_path(chat_id)
+        try:
+            if not path.exists() or not path.stat().st_size:
+                await update.effective_message.reply_text('В журнале пока нет записей.')
+            elif path.stat().st_size > 49*1024*1024:
+                await update.effective_message.reply_text('Журнал больше лимита Telegram. Скачай файл '+path.name+' из папки .data/chat-journals на BotHost.')
+            else:
+                with path.open('rb') as saved:
+                    await context.bot.send_document(chat_id=update.effective_user.id,
+                        document=InputFile(saved,filename=path.name,read_file_handle=False),filename=path.name,
+                        caption='Журнал чата после предупреждения участников. Время: Уфа.')
+        except (OSError,TelegramError):
+            await update.effective_message.reply_text('Не удалось отправить журнал. Проверь файл на хостинге.')
+        await self.journal(update,context,chat_id)
 
     async def members(self, update, context, chat_id, page=0, refresh=False):
         if chat_id >= 0 or not self.profiles.access_target(chat_id):
@@ -447,6 +496,23 @@ class AdminPanel:
                 return
             job_id = self.profiles.queue_broadcast(update.effective_user.id,draft['body'],draft['audience'],targets)
             await self.report(update,context,job_id)
+        elif action in ('journal','journal_get','journal_clear_ask','journal_clear') and value.startswith('-') and value[1:].isdigit():
+            chat_id = int(value)
+            if not self.profiles.access_target(chat_id):return
+            if action == 'journal_get':
+                await self.journal_download(update,context,chat_id)
+            elif action == 'journal_clear_ask':
+                await self.show(update,context,'Удалить все записи этого журнала? Запись новых сообщений продолжится.',
+                    [[('🧹 Подтвердить очистку','journal_clear',value)],[('Отмена','journal',value)]])
+            else:
+                if action == 'journal_clear':self.profiles.journals.clear(chat_id)
+                await self.journal(update,context,chat_id)
+        elif action == 'journals_clear_ask':
+            await self.show(update,context,'Очистить все журналы чатов? Привязки, настройки и расписание сохранятся. Запись новых сообщений продолжится.',
+                [[('🧹 Да, очистить все журналы','journals_clear','')],[('Отмена','root','')]])
+        elif action == 'journals_clear':
+            for chat in self.profiles.registered_chats():self.profiles.journals.clear(chat['chat_id'])
+            await self.show(update,context,'Все журналы чатов очищены. Запись новых сообщений продолжается.',[[('← Админ-панель','root','')]])
         elif action in ('members','members_refresh') and ',' in value:
             chat_id, page = value.split(',',1)
             if chat_id.startswith('-') and chat_id[1:].isdigit() and page.isdigit():

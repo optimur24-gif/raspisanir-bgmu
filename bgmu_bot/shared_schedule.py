@@ -10,7 +10,7 @@ import time
 
 from aiogram import BaseMiddleware
 
-from .compact import compact_details
+from .compact import compact_details, lesson_kind
 from .commands import schedule_request
 from .presentation import today
 from .source import SourceError
@@ -47,6 +47,7 @@ class SharedSchedule:
             if normalize_group(str(payload['entity'].get('name') or '')) != normalize_group(self.group):
                 raise SourceError('Сайт вернул расписание другой группы вместо П-114.')
             rows = []
+            lesson_kinds = {}
             occurrences = {}
             for event in payload['events']:
                 if not event['date']:
@@ -60,11 +61,13 @@ class SharedSchedule:
                 occurrence = occurrences.get(identity, 0)
                 occurrences[identity] = occurrence + 1
                 row_id = int(hashlib.sha256(f'{identity}#{occurrence}'.encode()).hexdigest()[:15], 16)
+                lesson_kinds[row_id] = lesson_kind(event.get('kind'))
                 subject = str(event.get('subject') or 'Предмет уточняется')
                 location = '\n'.join(compact_details(event['details']))
                 rows.append((row_id, event['date'], '–'.join(str(event.get(key) or '') for key in ('start', 'end')), subject, location))
             # Publish a complete semester at once; a failure leaves the old snapshot.
             self.rows = tuple(rows)
+            self.lesson_kinds = lesson_kinds
             self.path = path
             self.ready = True
             meta = payload.get('meta') or {}
